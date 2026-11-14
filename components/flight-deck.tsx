@@ -12,17 +12,18 @@ import {
 } from "@/components/flight-hud";
 import { MissionLog } from "@/components/mission-log";
 import { SituationPanel } from "@/components/situation-panel";
+import { CHUNK_MS } from "@/hooks/steer-pacer";
 import {
   useAltitudeBands,
   useFlightControls,
 } from "@/hooks/use-flight-controls";
+import { cancelGuideSpeech, useGuide } from "@/hooks/use-guide";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
-import { useGuide } from "@/hooks/use-guide";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { useSteerScheduler } from "@/hooks/use-steer-scheduler";
 import { ORBIS_MODEL_NAME, ORBIS_TRACKS } from "@/lib/orbis";
 import { useSimStore } from "@/lib/sim/store";
-import type { Destination } from "@/lib/sim/types";
+import type { SimMode } from "@/lib/sim/types";
 
 const MODEL_LABEL = ORBIS_MODEL_NAME.split("/").pop() ?? ORBIS_MODEL_NAME;
 
@@ -33,10 +34,19 @@ const LAUNCH_STEPS = [
   "First frames",
 ] as const;
 
-/** Loads the seed image into a File. Resolves null when it is missing. */
-async function fetchSeedImage(destination: Destination): Promise<File | null> {
+/** The descent is steered for about two chunks before the view switches. */
+const DESCENT_MS = 2 * CHUNK_MS + 400;
+/** Lift an overlay anyway if a started run never reports frames. */
+const FRAME_REPORT_TIMEOUT_MS = 15_000;
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Loads a seed image into a File. Resolves null when it is missing. */
+async function fetchSeedImage(url: string, name: string): Promise<File | null> {
+  if (!url) return null;
   try {
-    const response = await fetch(destination.aerialImage);
+    const response = await fetch(url);
     if (!response.ok) return null;
     const blob = await response.blob();
     // A missing public file can come back as an HTML error page.
@@ -47,9 +57,7 @@ async function fetchSeedImage(destination: Destination): Promise<File | null> {
         : blob.type === "image/webp"
           ? "webp"
           : "jpg";
-    return new File([blob], `${destination.id}-aerial.${extension}`, {
-      type: blob.type,
-    });
+    return new File([blob], `${name}.${extension}`, { type: blob.type });
   } catch {
     return null;
   }
@@ -77,6 +85,12 @@ export function FlightDeck({ dryRun }: { dryRun: boolean }) {
   );
 }
 
+interface SeedInUse {
+  image: File | null;
+  prompt: string;
+  audioPrompt?: string;
+}
+
 function FlightSession({
   clearJwt,
   getCurrentJwt,
@@ -89,6 +103,7 @@ function FlightSession({
   const session = useOrbisSession(clearJwt, getCurrentJwt);
   const destination = useSimStore((store) => store.destination);
   const phase = useSimStore((store) => store.phase);
+  const mode = useSimStore((store) => store.state.mode);
   const setPhase = useSimStore((store) => store.setPhase);
   const log = useSimStore((store) => store.log);
   const markPromptApplied = useSimStore((store) => store.markPromptApplied);
@@ -97,23 +112,123 @@ function FlightSession({
   const [launchError, setLaunchError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [ending, setEnding] = useState(false);
+  // False from the moment a view change begins until the new run has been
+  // started, so frames from the outgoing run cannot lift the overlay.
+  const [armed, setArmed] = useState(true);
+  // Landing has two parts: a steered descent, then the overlay and the switch.
+  const [landingStage, setLandingStage] = useState<"descent" | "switch">(
+    "descent",
+  );
+  const [restarting, setRestarting] = useState(false);
+  const [guideVoice, setGuideVoice] = useState(true);
+
   const connectRequested = useRef(false);
   const launchedAttempt = useRef(-1);
   const everConnected = useRef(false);
   const endingRef = useRef(false);
+  const seedInUse = useRef<SeedInUse | null>(null);
+  const kickoffInUse = useRef("");
+  const restartingRef = useRef(false);
 
-  const { connected, status, hasFrames, runComplete } = session;
+  const { connected, status, hasFrames, runComplete, runStarted } = session;
   const flying = phase === "flying";
+  const touring = phase === "touring";
+  const live = (flying || touring) && !restarting;
+  const descending = phase === "landing" && landingStage === "descent";
+  // An overlay is waiting for the first frames of a new run.
+  const awaitingFrames =
+    phase === "preparing" || (phase === "landing" && landingStage === "switch");
+  const groundReady = Boolean(destination?.groundImage);
+
+  /**
+   * Start the stream for one view from its seed image and kickoff prompt.
+   * `withReset` is for every start after the first: landing, takeoff, retry.
+   */
+  const launchView = async (view: SimMode, withReset: boolean) => {
+    const current = useSimStore.getState().destination;
+    if (!current) return false;
+    const url = view === "flight" ? current.aerialImage : current.groundImage;
+    const prompt =
+      view === "flight" ? current.aerialKickoff : current.groundKickoff;
+
+    setLaunchError("");
+    const image = await fetchSeedImage(
+      url,
+      `${current.id}-${view === "flight" ? "aerial" : "ground"}`,
+    );
+    if (!image) {
+      log("system", "Seed image unavailable. Starting from the text prompt only");
+    }
+    seedInUse.current = { image, prompt, audioPrompt: current.audioPrompt };
+    kickoffInUse.current = prompt;
+    log("prompt", prompt, "pending");
+
+    const options = { audioPrompt: current.audioPrompt };
+    const started = withReset
+      ? await session.transitionTo(image, prompt, options)
+      : await session.startFlight(image, prompt, options);
+    if (started) setArmed(true);
+    else log("system", "Orbis did not start the run");
+    return started;
+  };
+
+  const land = async () => {
+    const store = useSimStore.getState();
+    if (store.phase !== "flying" || restartingRef.current) return;
+    if (!store.destination?.groundImage) return;
+
+    log("input", "L · Land");
+    cancelGuideSpeech();
+    setLandingStage("descent");
+    setPhase("landing");
+    // The scheduler keeps running through the descent and sends these.
+    store.applyDelta({ flight: { pitch: "descend", bank: "level" } });
+    await sleep(DESCENT_MS);
+    if (endingRef.current || useSimStore.getState().phase !== "landing") return;
+
+    setArmed(false);
+    setLandingStage("switch");
+    useSimStore.getState().enterMode("tour");
+    log("system", "Touchdown. Switching to the street view");
+
+    if (dryRun) {
+      await sleep(1200);
+      if (endingRef.current) return;
+      setPhase("touring");
+      log("system", "Dry run: on the ground. No stream was started");
+      return;
+    }
+    await launchView("tour", true);
+  };
+
+  const takeOff = async () => {
+    const store = useSimStore.getState();
+    if (store.phase !== "touring" || restartingRef.current) return;
+
+    log("input", "T · Take off");
+    cancelGuideSpeech();
+    setArmed(false);
+    store.enterMode("flight");
+    setPhase("preparing");
+    log("system", "Taking off. Switching to the aerial view");
+    // A dry run is carried to "flying" by its own effect below.
+    if (!dryRun) await launchView("flight", true);
+  };
 
   // Keys and gauges are local: they respond on the same frame as the press.
-  useFlightControls(flying);
-  useAltitudeBands(flying);
+  useFlightControls(live, {
+    onLand: () => void land(),
+    onTakeOff: () => void takeOff(),
+  });
+  useAltitudeBands(flying && !restarting);
   const feedbackStyle = useVideoFeedbackStyle();
   // State changes reach Orbis one sentence per chunk boundary.
-  useSteerScheduler({ enabled: flying && (dryRun || connected), dryRun });
+  useSteerScheduler({
+    enabled: (live || descending) && (dryRun || connected),
+    dryRun,
+  });
   // The Gemini guide narrates while the picture is live.
-  const [guideVoice, setGuideVoice] = useState(true);
-  const guide = useGuide({ enabled: flying, voiceOn: guideVoice });
+  const guide = useGuide({ enabled: live, voiceOn: guideVoice });
 
   // 1. Connect once when the deck opens.
   useEffect(() => {
@@ -125,61 +240,53 @@ function FlightSession({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dryRun]);
 
-  // 2. Once the session is ready, load the seed image and start the run.
+  // 2. Once the session is ready, start the current view. A retry bumps
+  //    `attempt` and comes back through here with a reset first.
   useEffect(() => {
-    if (dryRun || !connected || !destination) return;
+    if (dryRun || !connected) return;
     if (launchedAttempt.current === attempt) return;
     launchedAttempt.current = attempt;
     everConnected.current = true;
-
-    void (async () => {
-      setLaunchError("");
-      log("system", "Session ready. Loading the seed image");
-      const image = await fetchSeedImage(destination);
-      if (!image) {
-        log(
-          "system",
-          "Seed image unavailable. Starting from the text prompt only",
-        );
-      }
-      log("prompt", destination.aerialKickoff, "pending");
-      const started = await session.startFlight(
-        image,
-        destination.aerialKickoff,
-        { audioPrompt: destination.audioPrompt },
-      );
-      if (!started) log("system", "Orbis did not start the run");
-    })();
+    log("system", "Session ready. Loading the seed image");
+    void launchView(useSimStore.getState().state.mode, attempt > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt, connected, destination, dryRun]);
+  }, [attempt, connected, dryRun]);
 
-  // 3. First real frames: lift the overlay and hand over the controls.
+  // 3. First real frames of a new run: lift the overlay, hand over controls.
   useEffect(() => {
-    if (!hasFrames || phase !== "preparing" || !destination) return;
-    setPhase("flying");
-    markPromptApplied(destination.aerialKickoff);
-    log("system", "Video live. You have the controls");
-  }, [destination, hasFrames, log, markPromptApplied, phase, setPhase]);
+    if (!hasFrames || !armed || !awaitingFrames) return;
+    const next = useSimStore.getState().state.mode === "tour" ? "touring" : "flying";
+    setPhase(next);
+    markPromptApplied(kickoffInUse.current);
+    log(
+      "system",
+      next === "touring"
+        ? "On the ground. Walk, look around, or take off again"
+        : "Video live. You have the controls",
+    );
+  }, [armed, awaitingFrames, hasFrames, log, markPromptApplied, setPhase]);
 
-  // Safety net: if the run started but no chunk ever reports frames, do not
+  // Safety net: if a run started but no chunk ever reports frames, do not
   // leave the overlay covering a stream that may well be playing underneath.
-  const runStarted = session.runStarted;
   useEffect(() => {
-    if (dryRun || !runStarted || phase !== "preparing") return;
+    if (dryRun || !runStarted || !armed || !awaitingFrames) return;
     const timer = setTimeout(() => {
-      setPhase("flying");
+      setPhase(
+        useSimStore.getState().state.mode === "tour" ? "touring" : "flying",
+      );
       log(
         "system",
         "No frame report from Orbis after 15 s. Showing the stream anyway",
       );
-    }, 15_000);
+    }, FRAME_REPORT_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [dryRun, log, phase, runStarted, setPhase]);
+  }, [armed, awaitingFrames, dryRun, log, runStarted, setPhase]);
 
   // Dry run: no session, so go straight to the controls after a short beat.
   useEffect(() => {
     if (!dryRun || phase !== "preparing") return;
     const timer = setTimeout(() => {
+      setArmed(true);
       setPhase("flying");
       log(
         "system",
@@ -189,23 +296,71 @@ function FlightSession({
     return () => clearTimeout(timer);
   }, [dryRun, log, phase, setPhase]);
 
-  // 4. The run or the session ended underneath us.
+  // 4. Run limit (generation_complete): restart the same view by itself.
+  useEffect(() => {
+    if (!runComplete || endingRef.current || restartingRef.current) return;
+    if (phase !== "flying" && phase !== "touring") return;
+    const seed = seedInUse.current;
+    if (!seed) return;
+
+    restartingRef.current = true;
+    setRestarting(true);
+    setArmed(false);
+    cancelGuideSpeech();
+    log("system", "Run limit reached. Restarting the stream");
+    // Orbis is back at the kickoff prompt, so every change is pending again.
+    useSimStore.getState().resyncLastSent();
+    log("prompt", seed.prompt, "pending");
+
+    void session
+      .restartRun(seed.image, seed.prompt, { audioPrompt: seed.audioPrompt })
+      .then((restarted) => {
+        if (restarted) {
+          setArmed(true);
+          return;
+        }
+        restartingRef.current = false;
+        setRestarting(false);
+        setPhase("ended");
+        setLaunchError(
+          "Orbis reached its run limit and the stream could not be restarted.",
+        );
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, runComplete]);
+
+  // The restarted run is showing frames (or has had long enough to).
+  useEffect(() => {
+    if (!restarting || !armed) return;
+    const finish = (note: string) => {
+      restartingRef.current = false;
+      setRestarting(false);
+      markPromptApplied(kickoffInUse.current);
+      log("system", note);
+    };
+    if (hasFrames) {
+      finish("Stream restarted");
+      return;
+    }
+    const timer = setTimeout(
+      () => finish("No frame report after the restart. Showing the stream anyway"),
+      FRAME_REPORT_TIMEOUT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [armed, hasFrames, log, markPromptApplied, restarting]);
+
+  // 5. The session ended underneath us.
   useEffect(() => {
     if (endingRef.current) return;
-    if (runComplete && phase !== "ended") {
-      setPhase("ended");
-      setLaunchError("Orbis reached its run limit for this flight.");
-      log("system", "Run limit reached (generation_complete)");
-    } else if (
-      everConnected.current &&
-      status === "disconnected" &&
-      phase !== "ended"
-    ) {
+    if (everConnected.current && status === "disconnected" && phase !== "ended") {
       setPhase("ended");
       setLaunchError("The Orbis session ended.");
       log("system", "Session disconnected");
     }
-  }, [log, phase, runComplete, setPhase, status]);
+  }, [log, phase, setPhase, status]);
+
+  // Leaving the deck for any reason silences the guide.
+  useEffect(() => cancelGuideSpeech, []);
 
   if (!destination) return null;
 
@@ -213,13 +368,14 @@ function FlightSession({
     if (endingRef.current) return;
     endingRef.current = true;
     setEnding(true);
+    cancelGuideSpeech();
     try {
       if (!dryRun && status !== "disconnected") {
         await session.disconnectSession();
       }
     } finally {
-      if (destination.aerialImage.startsWith("blob:")) {
-        URL.revokeObjectURL(destination.aerialImage);
+      for (const url of [destination.aerialImage, destination.groundImage]) {
+        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
       }
       // Unmounting the provider tears the Reactor instance down as a backstop.
       resetSim();
@@ -228,7 +384,9 @@ function FlightSession({
 
   const retry = () => {
     setLaunchError("");
+    session.clearError();
     if (connected) {
+      setArmed(false);
       setAttempt((current) => current + 1);
     } else {
       launchedAttempt.current = -1;
@@ -238,15 +396,27 @@ function FlightSession({
   };
 
   const errorText = launchError || session.error;
-  const showVideo = !dryRun && connected && session.runStarted;
-  const launchStep = !connected
-    ? 0
-    : !session.runStarted
-      ? session.imageStatus
-        ? 2
-        : 1
-      : 3;
+  const showVideo = !dryRun && connected && runStarted;
+  const showOverlay = awaitingFrames || phase === "ended" || restarting;
+  const launchStep = !connected ? 0 : !runStarted ? (session.imageStatus ? 2 : 1) : 3;
   const statusLabel = dryRun ? "dry run" : status;
+  const overlayImage =
+    mode === "tour" && destination.groundImage
+      ? destination.groundImage
+      : destination.aerialImage;
+  const overlayKicker = errorText
+    ? "Flight interrupted"
+    : phase === "ended"
+      ? "Flight ended"
+      : restarting
+        ? "Restarting the stream"
+        : phase === "landing"
+          ? "Landing"
+          : attempt === 0 && !everConnected.current
+            ? "Preparing for takeoff"
+            : "Taking off";
+  const landHint =
+    mode === "flight" && !groundReady ? "Preparing ground view" : undefined;
 
   return (
     <main className="deck">
@@ -258,6 +428,9 @@ function FlightSession({
         <div className="deck-route">
           <span className="deck-route-code">{destinationCode(destination)}</span>
           <span className="deck-route-name">{destination.name}</span>
+          <span className="deck-route-mode">
+            {mode === "tour" ? "On foot" : "In flight"}
+          </span>
         </div>
         <div className="deck-bar-right">
           <span className={`deck-status deck-status-${status}`}>
@@ -269,7 +442,10 @@ function FlightSession({
             type="button"
             className="btn btn-ghost btn-small"
             aria-pressed={guideVoice}
-            onClick={() => setGuideVoice((current) => !current)}
+            onClick={(event) => {
+              event.currentTarget.blur();
+              setGuideVoice((current) => !current);
+            }}
           >
             {guideVoice ? "Guide voice on" : "Guide voice off"}
           </button>
@@ -277,7 +453,10 @@ function FlightSession({
             <button
               type="button"
               className="btn btn-ghost btn-small"
-              onClick={session.toggleMuted}
+              onClick={(event) => {
+                event.currentTarget.blur();
+                session.toggleMuted();
+              }}
             >
               {session.muted ? "Enable sound" : "Mute"}
             </button>
@@ -301,7 +480,7 @@ function FlightSession({
                 {dryRun && (
                   <img
                     className="video-still"
-                    src={destination.aerialImage}
+                    src={overlayImage}
                     alt=""
                   />
                 )}
@@ -316,15 +495,18 @@ function FlightSession({
                 )}
               </div>
 
-              {flying && <FlightHud />}
-              {flying && guide.caption && (
+              {(live || descending) && <FlightHud />}
+              {descending && (
+                <p className="viewport-banner">Final approach</p>
+              )}
+              {live && guide.caption && (
                 <p className="guide-caption">
                   <span>Guide</span>
                   {guide.caption}
                 </p>
               )}
 
-              {!flying && (
+              {showOverlay && (
                 <div
                   className="launch-overlay"
                   role="status"
@@ -332,20 +514,14 @@ function FlightSession({
                 >
                   <img
                     className="launch-backdrop"
-                    src={destination.aerialImage}
+                    src={overlayImage}
                     alt=""
                     onError={(event) => {
                       event.currentTarget.style.display = "none";
                     }}
                   />
                   <div className="launch-panel">
-                    <p className="kicker">
-                      {errorText
-                        ? "Flight interrupted"
-                        : phase === "ended"
-                          ? "Flight ended"
-                          : "Preparing for takeoff"}
-                    </p>
+                    <p className="kicker">{overlayKicker}</p>
                     <h2>{destination.name}</h2>
 
                     {errorText ? (
@@ -400,7 +576,7 @@ function FlightSession({
                 </div>
               )}
 
-              {flying && errorText && (
+              {!showOverlay && errorText && (
                 <p className="alert viewport-alert" role="alert">
                   <span>{errorText}</span>
                   <button
@@ -418,9 +594,14 @@ function FlightSession({
             </div>
           </div>
           <div className="dock">
-            <FlightKeys disabled={!flying} />
-            <SituationPanel disabled={!flying} />
-            <CommandBar disabled={!flying} />
+            <FlightKeys
+              disabled={!live}
+              onLand={() => void land()}
+              onTakeOff={() => void takeOff()}
+              landHint={landHint}
+            />
+            <SituationPanel disabled={!live} />
+            <CommandBar disabled={!live} />
           </div>
         </section>
         <MissionLog />

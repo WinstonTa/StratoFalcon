@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useSimStore } from "@/lib/sim/store";
-import type { FlightState } from "@/lib/sim/types";
+import type { FlightState, TourState } from "@/lib/sim/types";
 
 export type FlightControl =
   | "climb"
@@ -99,6 +99,76 @@ export function applyFlightControl(control: FlightControl, keycap?: string) {
   applyDelta({ flight: delta });
 }
 
+// ---------------------------------------------------------------------------
+// Tour mode: W walk, S stop, A/D turn (latched), Q look up (latched).
+// ---------------------------------------------------------------------------
+
+export type TourControl =
+  | "walk"
+  | "stop"
+  | "turn-left"
+  | "turn-right"
+  | "look-up";
+
+export interface TourKey {
+  code: string;
+  keycap: string;
+  control: TourControl;
+  label: string;
+}
+
+export const TOUR_KEYS: TourKey[] = [
+  { code: "KeyW", keycap: "W", control: "walk", label: "Walk" },
+  { code: "KeyS", keycap: "S", control: "stop", label: "Stop" },
+  { code: "KeyA", keycap: "A", control: "turn-left", label: "Turn left" },
+  { code: "KeyD", keycap: "D", control: "turn-right", label: "Turn right" },
+  { code: "KeyQ", keycap: "Q", control: "look-up", label: "Look up" },
+];
+
+export function isTourControlActive(control: TourControl, tour: TourState) {
+  switch (control) {
+    case "walk":
+      return tour.move === "walk";
+    case "stop":
+      return tour.move === "stand";
+    case "turn-left":
+      return tour.turn === "left";
+    case "turn-right":
+      return tour.turn === "right";
+    case "look-up":
+      return tour.gaze === "up";
+  }
+}
+
+export function applyTourControl(control: TourControl, keycap?: string) {
+  const { state, applyDelta, log } = useSimStore.getState();
+  if (state.mode !== "tour") return;
+  const { tour } = state;
+  let delta: Partial<TourState>;
+
+  switch (control) {
+    case "walk":
+      delta = { move: "walk" };
+      break;
+    case "stop":
+      delta = { move: "stand", turn: "none" };
+      break;
+    case "turn-left":
+      delta = { turn: tour.turn === "left" ? "none" : "left" };
+      break;
+    case "turn-right":
+      delta = { turn: tour.turn === "right" ? "none" : "right" };
+      break;
+    case "look-up":
+      delta = { gaze: tour.gaze === "up" ? "ahead" : "up" };
+      break;
+  }
+
+  const key = TOUR_KEYS.find((entry) => entry.control === control);
+  log("input", `${keycap ?? key?.keycap ?? "Key"} · ${key?.label ?? control}`);
+  applyDelta({ tour: delta });
+}
+
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   return (
@@ -109,8 +179,21 @@ function isTypingTarget(target: EventTarget | null) {
   );
 }
 
-/** Keyboard flight controls. Active only while `enabled`. */
-export function useFlightControls(enabled: boolean) {
+export interface TransitionKeys {
+  /** L while flying. */
+  onLand?: () => void;
+  /** T while touring. */
+  onTakeOff?: () => void;
+}
+
+/**
+ * Keyboard controls for whichever mode is active. Active only while `enabled`.
+ * Keys are ignored while focus is in a text field.
+ */
+export function useFlightControls(enabled: boolean, transitions?: TransitionKeys) {
+  const transitionsRef = useRef(transitions);
+  transitionsRef.current = transitions;
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -119,15 +202,31 @@ export function useFlightControls(enabled: boolean) {
         return;
       }
       if (isTypingTarget(event.target)) return;
-      const key = FLIGHT_KEYS.find((entry) => entry.code === event.code);
-      if (!key) return;
+      const mode = useSimStore.getState().state.mode;
+      const flightKey =
+        mode === "flight"
+          ? FLIGHT_KEYS.find((entry) => entry.code === event.code)
+          : undefined;
+      const tourKey =
+        mode === "tour"
+          ? TOUR_KEYS.find((entry) => entry.code === event.code)
+          : undefined;
+      const transition =
+        mode === "flight" && event.code === "KeyL"
+          ? transitionsRef.current?.onLand
+          : mode === "tour" && event.code === "KeyT"
+            ? transitionsRef.current?.onTakeOff
+            : undefined;
+      if (!flightKey && !tourKey && !transition) return;
 
       // Space must not scroll the page or press whichever button has focus.
       event.preventDefault();
       if (document.activeElement instanceof HTMLButtonElement) {
         document.activeElement.blur();
       }
-      applyFlightControl(key.control, key.keycap);
+      if (flightKey) applyFlightControl(flightKey.control, flightKey.keycap);
+      else if (tourKey) applyTourControl(tourKey.control, tourKey.keycap);
+      else transition?.();
     };
 
     window.addEventListener("keydown", handleKeyDown);

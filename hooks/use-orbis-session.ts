@@ -46,6 +46,7 @@ export function useOrbisSession(
   const disconnecting = useRef(false);
   const conditionsReadyResolver = useRef<(() => void) | null>(null);
   const imageReadyResolver = useRef<(() => void) | null>(null);
+  const resetResolver = useRef<(() => void) | null>(null);
   const expectsImageForRun = useRef(false);
 
   const connected = status === "ready";
@@ -201,6 +202,11 @@ export function useOrbisSession(
       conditionsReadyResolver.current = null;
     }
 
+    if (message.type === "generation_reset") {
+      resetResolver.current?.();
+      resetResolver.current = null;
+    }
+
     if (message.type === "state" && message.has_image === true) {
       imageReadyResolver.current?.();
       imageReadyResolver.current = null;
@@ -334,6 +340,62 @@ export function useOrbisSession(
     setPaused(false);
   };
 
+  /**
+   * `reset`, then wait for Orbis to confirm with generation_reset. Needed
+   * before a new start image can take effect (set_image is ignored mid-run).
+   * A refused reset (for example, nothing was running) is tolerated so a retry
+   * can always begin with one.
+   */
+  const resetGeneration = async () => {
+    const resetDone = waitForSignal(resetResolver, "generation_reset");
+    const rawReply = await sendCommand("reset", {});
+    const reply = rawReply ? unwrapOrbisMessage(rawReply) : null;
+    if (reply?.type === "command_error" || reply?.type === "generation_reset") {
+      resetDone.cancel();
+    } else {
+      await resetDone.promise;
+    }
+    setRunStarted(false);
+    setPaused(false);
+    setHasFrames(false);
+    setRunComplete(false);
+    setImageStatus("");
+  };
+
+  /** Landing and takeoff: reset the run, then start again from a new seed. */
+  const transitionTo = (
+    startImage: File | null,
+    runPrompt: string,
+    options?: { audioPrompt?: string },
+  ) =>
+    runAction(async () => {
+      await resetGeneration();
+      await startGeneration(startImage, runPrompt, options);
+    });
+
+  /**
+   * After generation_complete: `start` again with the conditions Orbis still
+   * holds; if it refuses, fall back to a reset and a full start.
+   */
+  const restartRun = (
+    startImage: File | null,
+    runPrompt: string,
+    options?: { audioPrompt?: string },
+  ) =>
+    runAction(async () => {
+      setRunComplete(false);
+      setHasFrames(false);
+      const rawReply = await sendCommand("start", {});
+      const reply = rawReply ? unwrapOrbisMessage(rawReply) : null;
+      if (reply?.type === "command_error") {
+        await resetGeneration();
+        await startGeneration(startImage, runPrompt, options);
+        return;
+      }
+      setRunStarted(true);
+      setPaused(false);
+    });
+
   const selectImage = (nextImage: File | null) => {
     setImage(nextImage);
     setImageStatus("");
@@ -411,6 +473,8 @@ export function useOrbisSession(
     hasFrames,
     runComplete,
     startFlight,
+    transitionTo,
+    restartRun,
     clearError: () => setError(""),
     connectSession: () => runAction(() => connect()),
     disconnectSession,
