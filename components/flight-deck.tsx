@@ -138,7 +138,9 @@ function FlightSession({
   // An overlay is waiting for the first frames of a new run.
   const awaitingFrames =
     phase === "preparing" || (phase === "landing" && landingStage === "switch");
-  const groundReady = Boolean(destination?.groundImage);
+  const groundStatus = useSimStore((store) => store.groundStatus);
+  const groundReady =
+    groundStatus === "ready" && Boolean(destination?.groundImage);
 
   /**
    * Start the stream for one view from its seed image and kickoff prompt.
@@ -175,7 +177,9 @@ function FlightSession({
   const land = async () => {
     const store = useSimStore.getState();
     if (store.phase !== "flying" || restartingRef.current) return;
-    if (!store.destination?.groundImage) return;
+    if (!store.destination?.groundImage || store.groundStatus !== "ready") {
+      return;
+    }
 
     log("input", "L · Land");
     cancelGuideSpeech();
@@ -416,7 +420,11 @@ function FlightSession({
             ? "Preparing for takeoff"
             : "Taking off";
   const landHint =
-    mode === "flight" && !groundReady ? "Preparing ground view" : undefined;
+    mode !== "flight" || groundReady
+      ? undefined
+      : groundStatus === "failed"
+        ? "Ground view unavailable"
+        : "Preparing ground view";
 
   return (
     <main className="deck">

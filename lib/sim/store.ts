@@ -34,6 +34,8 @@ export interface MissionLogEntry {
   status?: MissionLogStatus;
 }
 
+export type GroundStatus = "ready" | "preparing" | "failed";
+
 const MAX_LOG_ENTRIES = 200;
 
 let nextLogId = 1;
@@ -92,6 +94,11 @@ interface SimStore {
   lastSentState: SimState;
   missionLog: MissionLogEntry[];
   guideLines: string[];
+  /**
+   * Whether the street-level seed exists yet. Presets are always "ready"; an
+   * uploaded photo starts "preparing" while its ground view is generated.
+   */
+  groundStatus: GroundStatus;
 
   /** Choose a destination and arm a new flight. Clears the previous log. */
   beginFlight: (destination: Destination) => void;
@@ -116,6 +123,8 @@ interface SimStore {
   resyncLastSent: () => void;
   /** Patch the active destination, e.g. when an upload's ground seed is ready. */
   updateDestination: (id: string, patch: Partial<Destination>) => void;
+  /** Report the outcome of preparing destination `id`'s ground view. */
+  setGroundStatus: (id: string, status: GroundStatus) => void;
   /** Append a mission log entry and return its id. */
   log: (kind: MissionLogKind, text: string, status?: MissionLogStatus) => number;
   /**
@@ -136,11 +145,13 @@ export const useSimStore = create<SimStore>((set, get) => ({
   lastSentState: freshState(),
   missionLog: [],
   guideLines: [],
+  groundStatus: "ready",
 
   beginFlight: (destination) =>
     set({
       phase: "preparing",
       destination,
+      groundStatus: destination.groundImage ? "ready" : "preparing",
       state: freshState(),
       lastSentState: freshState(),
       guideLines: [],
@@ -238,6 +249,11 @@ export const useSimStore = create<SimStore>((set, get) => ({
       return changed ? { missionLog } : store;
     }),
 
+  setGroundStatus: (id, status) =>
+    set((store) =>
+      store.destination?.id === id ? { groundStatus: status } : store,
+    ),
+
   addGuideLine: (line) =>
     set((store) => ({ guideLines: [line, ...store.guideLines].slice(0, 20) })),
 
@@ -249,5 +265,6 @@ export const useSimStore = create<SimStore>((set, get) => ({
       lastSentState: freshState(),
       missionLog: [],
       guideLines: [],
+      groundStatus: "ready",
     }),
 }));

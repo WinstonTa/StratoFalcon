@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type ChangeEvent, useState } from "react";
 
 import { ORBIS_MODEL_NAME } from "@/lib/orbis";
+import { requestKickoff, requestSeed } from "@/lib/sim/client";
 import { DESTINATIONS } from "@/lib/sim/destinations";
 import { compileKickoff, INITIAL_STATE } from "@/lib/sim/prompt-compiler";
 import { useSimStore } from "@/lib/sim/store";
@@ -25,7 +26,14 @@ export function destinationCode(destination: Destination) {
   );
 }
 
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+// The photo is cropped and re-encoded in the browser before anything is
+// uploaded, so the 10 MB limit of the routes applies to the small cropped
+// JPEG. This guard only keeps absurd files away from the decoder.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+// HEIC from phones is rejected by the routes and cannot be decoded by Chrome.
+const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
+/** If Gemini has not named the place by then, fly with a generic kickoff. */
+const KICKOFF_TIMEOUT_MS = 20_000;
 const SEED_WIDTH = 1280;
 const SEED_HEIGHT = 720;
 
@@ -33,7 +41,7 @@ const SEED_HEIGHT = 720;
  * Orbis resizes start images to 16:9 without cropping, so anything else comes
  * out stretched. Centre-crop the photo to 1280×720 in the browser first.
  */
-async function cropTo16by9(file: File): Promise<Blob> {
+async function cropTo16by9(file: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
   try {
     const scale = Math.max(
@@ -64,6 +72,68 @@ async function cropTo16by9(file: File): Promise<Blob> {
     );
   } finally {
     bitmap.close();
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${what} took longer than ${ms / 1000} s`)),
+      ms,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Runs after the flight has started: asks for a street-level view of the same
+ * place and its tour kickoff, then unlocks Land. On failure Land stays
+ * disabled with a hint; the flight itself is unaffected.
+ */
+async function prepareGroundView(id: string, aerial: Blob, placeName: string) {
+  const isCurrent = () => useSimStore.getState().destination?.id === id;
+  try {
+    const raw = await requestSeed(aerial, "ground", placeName);
+    const ground = await cropTo16by9(raw);
+    let groundKickoff: string;
+    try {
+      groundKickoff = (await requestKickoff(ground, "tour", placeName)).prompt;
+    } catch {
+      groundKickoff = "";
+    }
+    if (!groundKickoff?.trim()) {
+      groundKickoff = compileKickoff(placeName, {
+        ...INITIAL_STATE,
+        mode: "tour",
+      });
+    }
+    if (!isCurrent()) return;
+    const store = useSimStore.getState();
+    store.updateDestination(id, {
+      groundImage: URL.createObjectURL(ground),
+      groundKickoff,
+    });
+    store.setGroundStatus(id, "ready");
+    store.log("system", "Ground view ready. Land is available");
+  } catch (caught) {
+    if (!isCurrent()) return;
+    const store = useSimStore.getState();
+    store.setGroundStatus(id, "failed");
+    store.log(
+      "system",
+      `Ground view failed, Land is unavailable: ${
+        caught instanceof Error ? caught.message : String(caught)
+      }`,
+    );
   }
 }
 
@@ -119,7 +189,9 @@ function DestinationCard({
 export function DestinationGallery({ dryRun }: { dryRun: boolean }) {
   const beginFlight = useSimStore((store) => store.beginFlight);
   const [uploadError, setUploadError] = useState("");
-  const [preparing, setPreparing] = useState(false);
+  // Non-empty while an uploaded photo is being prepared; it is the step label.
+  const [preparing, setPreparing] = useState("");
+  const [preview, setPreview] = useState("");
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -127,42 +199,83 @@ export function DestinationGallery({ dryRun }: { dryRun: boolean }) {
     if (!file) return;
     setUploadError("");
 
-    if (!file.type.startsWith("image/")) {
-      setUploadError("That file is not an image. Choose a JPEG or PNG photo.");
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setUploadError(
+        "Choose a JPEG, PNG or WebP photo. HEIC photos from a phone are not supported.",
+      );
       return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadError("That photo is over 20 MB. Choose a smaller one.");
+      setUploadError("That photo is over 25 MB. Choose a smaller one.");
       return;
     }
 
-    setPreparing(true);
+    setPreparing("Preparing the photo");
+    let previewUrl = "";
+    let handedOver = false;
     try {
       const cropped = await cropTo16by9(file);
-      const url = URL.createObjectURL(cropped);
-      // Phase 1: fly straight from the photo with a generic compiled kickoff.
-      // The Gemini-backed place recognition and ground seed arrive in Phase 3.
+      previewUrl = URL.createObjectURL(cropped);
+      setPreview(previewUrl);
+
+      // Gemini names the place and writes the kickoff prompt. If that fails
+      // or is slow, fly anyway with a generic compiled kickoff.
+      setPreparing("Recognising the place");
+      let name = "Your photo";
+      let aerialKickoff = compileKickoff("this place", INITIAL_STATE);
+      let guideFacts: string[] = [];
+      let note = "";
+      try {
+        const kickoff = await withTimeout(
+          requestKickoff(cropped, "flight"),
+          KICKOFF_TIMEOUT_MS,
+          "Recognising the place",
+        );
+        if (kickoff.name?.trim()) name = kickoff.name.trim();
+        if (kickoff.prompt?.trim()) aerialKickoff = kickoff.prompt.trim();
+        if (Array.isArray(kickoff.guideFacts)) guideFacts = kickoff.guideFacts;
+      } catch (caught) {
+        note = caught instanceof Error ? caught.message : String(caught);
+      }
+
+      const id = `upload-${Date.now()}`;
       beginFlight({
-        id: "upload",
-        name: "Your photo",
+        id,
+        name,
         tagline: file.name,
-        aerialImage: url,
-        groundImage: url,
-        aerialKickoff: compileKickoff("this place", INITIAL_STATE),
-        groundKickoff: compileKickoff("this place", {
-          ...INITIAL_STATE,
-          mode: "tour",
-        }),
-        guideFacts: [],
+        aerialImage: previewUrl,
+        // Empty until prepareGroundView delivers; Land stays disabled till then.
+        groundImage: "",
+        groundKickoff: "",
+        aerialKickoff,
+        guideFacts,
       });
+      handedOver = true;
+      const store = useSimStore.getState();
+      if (note) {
+        store.log(
+          "system",
+          `Could not recognise the photo (${note}). Using a generic kickoff prompt`,
+        );
+      } else {
+        store.log("gemini", `Recognised the photo as ${name}`);
+      }
+      store.log("system", "Preparing the ground view in the background");
+      void prepareGroundView(
+        id,
+        cropped,
+        name === "Your photo" ? "this place" : name,
+      );
     } catch (caught) {
+      if (previewUrl && !handedOver) URL.revokeObjectURL(previewUrl);
       setUploadError(
         caught instanceof Error
           ? `Could not read that photo: ${caught.message}`
           : "Could not read that photo.",
       );
     } finally {
-      setPreparing(false);
+      setPreparing("");
+      setPreview("");
     }
   };
 
@@ -206,8 +319,8 @@ export function DestinationGallery({ dryRun }: { dryRun: boolean }) {
         <label className={`dest-card dest-upload${preparing ? " is-busy" : ""}`}>
           <input
             type="file"
-            accept="image/*"
-            disabled={preparing}
+            accept={ACCEPTED_TYPES.join(",")}
+            disabled={Boolean(preparing)}
             onChange={handleUpload}
           />
           <span className="dest-media">
@@ -221,10 +334,11 @@ export function DestinationGallery({ dryRun }: { dryRun: boolean }) {
               <span className="dest-index">Charter</span>
             </span>
             <span className="dest-name">
-              {preparing ? "Preparing photo…" : "Upload your own photo"}
+              {preparing ? `${preparing}…` : "Upload your own photo"}
             </span>
             <span className="dest-tagline">
-              Any place you have a picture of. Cropped to 16:9 for takeoff.
+              Any place you have a picture of. JPEG, PNG or WebP, cropped to
+              16:9 for takeoff.
             </span>
           </span>
           <span className="dest-cta">Browse</span>
@@ -235,6 +349,20 @@ export function DestinationGallery({ dryRun }: { dryRun: boolean }) {
         <p className="alert" role="alert">
           {uploadError}
         </p>
+      )}
+
+      {preparing && (
+        <div className="upload-overlay" role="status" aria-live="polite">
+          {preview && <img className="launch-backdrop" src={preview} alt="" />}
+          <div className="launch-panel">
+            <p className="kicker">Your photo</p>
+            <h2>{preparing}…</h2>
+            <p className="gallery-lede">
+              Gemini is working out where this is and writing the flight
+              prompt. Takeoff follows in a few seconds.
+            </p>
+          </div>
+        </div>
       )}
 
       <footer className="gallery-foot">
