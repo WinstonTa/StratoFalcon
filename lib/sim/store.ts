@@ -8,6 +8,7 @@ import {
 } from "@/lib/sim/prompt-compiler";
 import type {
   Destination,
+  SimMode,
   SimPhase,
   SimState,
   SimStateDelta,
@@ -101,6 +102,20 @@ interface SimStore {
   /** Drop the one-shot event from `state` once its sentence has been sent. */
   clearEvent: () => void;
   setPhase: (phase: SimPhase) => void;
+  /**
+   * Switch between flight and tour after a landing or takeoff. Controls return
+   * to neutral; the environment is kept in `state` but `lastSentState` goes
+   * back to the seed's baseline, so the scheduler re-applies weather and time
+   * of day to the new view.
+   */
+  enterMode: (mode: SimMode) => void;
+  /**
+   * The stream was restarted from its kickoff prompt: Orbis only knows the
+   * baseline again, so everything in `state` becomes pending.
+   */
+  resyncLastSent: () => void;
+  /** Patch the active destination, e.g. when an upload's ground seed is ready. */
+  updateDestination: (id: string, patch: Partial<Destination>) => void;
   /** Append a mission log entry and return its id. */
   log: (kind: MissionLogKind, text: string, status?: MissionLogStatus) => number;
   /**
@@ -159,6 +174,33 @@ export const useSimStore = create<SimStore>((set, get) => ({
     })),
 
   setPhase: (phase) => set({ phase }),
+
+  enterMode: (mode) =>
+    set((store) => {
+      const base = freshState();
+      return {
+        state: {
+          mode,
+          flight: base.flight,
+          tour: base.tour,
+          environment: { ...store.state.environment },
+          event: null,
+        },
+        lastSentState: { ...base, mode },
+      };
+    }),
+
+  resyncLastSent: () =>
+    set((store) => ({
+      lastSentState: { ...freshState(), mode: store.state.mode },
+    })),
+
+  updateDestination: (id, patch) =>
+    set((store) =>
+      store.destination?.id === id
+        ? { destination: { ...store.destination, ...patch } }
+        : store,
+    ),
 
   log: (kind, text, status) => {
     const entry = makeEntry(kind, text, status);
