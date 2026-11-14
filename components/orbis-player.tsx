@@ -26,7 +26,7 @@ export function OrbisPlayer({
         />
       ) : (
         <div className="player-placeholder">
-          {connected ? "Configure and start a run" : "Connect to Orbis Stable"}
+          {connected ? "Configure and start a run" : "Connect to Orbis"}
         </div>
       )}
       <span className={`status status-${status}`}>{status}</span>
