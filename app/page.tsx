@@ -1,16 +1,16 @@
-import { OrbisDemo } from "@/components/orbis-demo";
+import Link from "next/link";
 
+// Placeholder while the destination gallery is built (Phase 1, item 3).
 export default function Home() {
   return (
-    <main>
+    <main className="starter">
       <header>
-        <h1>Orbis starter</h1>
+        <h1>StratoFalcon</h1>
         <p>
-          Connect, generate a continuous live video, then steer it by changing
-          the prompt while it runs.
+          The destination gallery is being built. The original Orbis starter is
+          at <Link href="/starter">/starter</Link>.
         </p>
       </header>
-      <OrbisDemo />
     </main>
   );
 }
