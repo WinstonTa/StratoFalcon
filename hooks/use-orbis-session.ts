@@ -182,11 +182,14 @@ export function useOrbisSession(
       setPaused(false);
       setHasFrames(false);
       if (message.type === "generation_complete") setRunComplete(true);
-    } else if (
-      message.type === "chunk_complete" &&
-      (message.frames_emitted ?? 0) > 0
-    ) {
-      setHasFrames(true);
+    } else if (message.type === "chunk_complete") {
+      // The first chunk emits no frames. If a chunk_complete ever arrives
+      // without a frame count, the second chunk onward is taken as picture.
+      const reportsFrames =
+        typeof message.frames_emitted === "number"
+          ? message.frames_emitted > 0
+          : (message.chunk_index ?? 0) >= 1;
+      if (reportsFrames) setHasFrames(true);
     }
   };
 

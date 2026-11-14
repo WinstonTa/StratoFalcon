@@ -155,6 +155,21 @@ function FlightSession({
     log("system", "Video live. You have the controls");
   }, [destination, hasFrames, log, markPromptApplied, phase, setPhase]);
 
+  // Safety net: if the run started but no chunk ever reports frames, do not
+  // leave the overlay covering a stream that may well be playing underneath.
+  const runStarted = session.runStarted;
+  useEffect(() => {
+    if (dryRun || !runStarted || phase !== "preparing") return;
+    const timer = setTimeout(() => {
+      setPhase("flying");
+      log(
+        "system",
+        "No frame report from Orbis after 15 s. Showing the stream anyway",
+      );
+    }, 15_000);
+    return () => clearTimeout(timer);
+  }, [dryRun, log, phase, runStarted, setPhase]);
+
   // Dry run: no session, so go straight to the controls after a short beat.
   useEffect(() => {
     if (!dryRun || phase !== "preparing") return;
