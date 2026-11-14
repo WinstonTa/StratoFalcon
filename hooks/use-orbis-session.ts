@@ -37,6 +37,10 @@ export function useOrbisSession(
   const [imageStatus, setImageStatus] = useState("");
   const [error, setError] = useState("");
   const [events, setEvents] = useState<string[]>([]);
+  // True once a chunk has actually delivered frames (the first chunk has none).
+  const [hasFrames, setHasFrames] = useState(false);
+  // True after Orbis reports generation_complete (run limit reached).
+  const [runComplete, setRunComplete] = useState(false);
 
   const previousStatus = useRef(status);
   const disconnecting = useRef(false);
@@ -55,6 +59,7 @@ export function useOrbisSession(
       setRunStarted(false);
       setPaused(false);
       setImageStatus("");
+      setHasFrames(false);
     }
     previousStatus.current = status;
   }, [status]);
@@ -175,6 +180,13 @@ export function useOrbisSession(
     ) {
       setRunStarted(false);
       setPaused(false);
+      setHasFrames(false);
+      if (message.type === "generation_complete") setRunComplete(true);
+    } else if (
+      message.type === "chunk_complete" &&
+      (message.frames_emitted ?? 0) > 0
+    ) {
+      setHasFrames(true);
     }
   };
 
@@ -203,7 +215,11 @@ export function useOrbisSession(
 
     if (!disconnecting.current) updateRunState(message);
 
-    if (message.type === "command_error") {
+    // Ambience is optional: a refused audio prompt must not block the flight.
+    if (
+      message.type === "command_error" &&
+      message.command !== "set_audio_prompt"
+    ) {
       setError(
         `${message.command || "command"}: ${message.reason || "rejected"}`,
       );
@@ -239,13 +255,17 @@ export function useOrbisSession(
     };
   };
 
-  // Shared by the regular form and the Nano Banana one-click example.
+  // Shared by the regular form, the Nano Banana one-click example and the
+  // StratoFalcon flight deck.
   const startGeneration = async (
     startImage: File | null,
     runPrompt: string,
+    options?: { audioPrompt?: string },
   ) => {
     if (!runPrompt.trim()) throw new Error("Enter a prompt before starting.");
     expectsImageForRun.current = Boolean(startImage);
+    setHasFrames(false);
+    setRunComplete(false);
 
     if (startImage) {
       const uploaded = await uploadFile(startImage, { name: startImage.name });
@@ -278,6 +298,14 @@ export function useOrbisSession(
 
     if (resolution) await sendCommand("set_resolution", { resolution });
 
+    // Ambient sound for the run. Deliberately not awaited: commands are
+    // delivered in order, so it still lands before `start`, and a missing or
+    // refused reply cannot stall the launch.
+    const audioPrompt = options?.audioPrompt?.trim();
+    if (audioPrompt) {
+      void sendCommand("set_audio_prompt", { prompt: audioPrompt });
+    }
+
     const conditionsReady = waitForSignal(
       conditionsReadyResolver,
       "conditions_ready",
@@ -309,6 +337,13 @@ export function useOrbisSession(
   };
 
   const startRun = () => runAction(() => startGeneration(image, prompt));
+
+  /** Start a run from explicit inputs. Resolves false and sets `error` on failure. */
+  const startFlight = (
+    startImage: File | null,
+    runPrompt: string,
+    options?: { audioPrompt?: string },
+  ) => runAction(() => startGeneration(startImage, runPrompt, options));
 
   const startFromNanoOutput = async (
     editedImage: File,
@@ -370,6 +405,10 @@ export function useOrbisSession(
     availableResolutions,
     error,
     events,
+    hasFrames,
+    runComplete,
+    startFlight,
+    clearError: () => setError(""),
     connectSession: () => runAction(() => connect()),
     disconnectSession,
     toggleMuted: () => setMuted((current) => !current),

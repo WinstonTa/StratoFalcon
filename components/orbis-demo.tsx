@@ -1,34 +1,16 @@
 "use client";
 
 import { ReactorProvider } from "@reactor-team/js-sdk";
-import { useCallback, useRef } from "react";
 
 import { NanoBananaExample } from "@/components/nano-banana-example";
 import { OrbisControls } from "@/components/orbis-controls";
 import { OrbisPlayer } from "@/components/orbis-player";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
-import { ORBIS_MODEL_NAME, ORBIS_TRACKS, requestReactorJwt } from "@/lib/orbis";
+import { useReactorJwt } from "@/hooks/use-reactor-jwt";
+import { ORBIS_MODEL_NAME, ORBIS_TRACKS } from "@/lib/orbis";
 
 export function OrbisDemo() {
-  const jwtPromise = useRef<Promise<string> | null>(null);
-  const currentJwt = useRef<string | null>(null);
-  const getJwt = useCallback(async () => {
-    const pending = (jwtPromise.current ??= requestReactorJwt());
-    try {
-      const jwt = await pending;
-      currentJwt.current = jwt;
-      return jwt;
-    } catch (error) {
-      // Do not permanently cache a failed token request.
-      if (jwtPromise.current === pending) jwtPromise.current = null;
-      throw error;
-    }
-  }, []);
-  const getCurrentJwt = useCallback(() => currentJwt.current, []);
-  const clearJwt = useCallback(() => {
-    jwtPromise.current = null;
-    currentJwt.current = null;
-  }, []);
+  const { getJwt, getCurrentJwt, clearJwt } = useReactorJwt();
 
   return (
     <section className="demo-shell">

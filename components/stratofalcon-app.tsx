@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { DestinationGallery } from "@/components/destination-gallery";
+import { FlightDeck } from "@/components/flight-deck";
 import { useSimStore } from "@/lib/sim/store";
 
 /**
@@ -16,7 +17,6 @@ import { useSimStore } from "@/lib/sim/store";
 export function StratoFalconApp() {
   const phase = useSimStore((store) => store.phase);
   const destination = useSimStore((store) => store.destination);
-  const reset = useSimStore((store) => store.reset);
   const [dryRun, setDryRun] = useState(false);
 
   useEffect(() => {
@@ -27,17 +27,5 @@ export function StratoFalconApp() {
     return <DestinationGallery dryRun={dryRun} />;
   }
 
-  // Placeholder until the flight deck lands in the next commit.
-  return (
-    <main className="gallery">
-      <section className="gallery-hero">
-        <p className="kicker">Preparing</p>
-        <h1>{destination.name}</h1>
-        <p className="gallery-lede">The flight deck is not wired up yet.</p>
-        <button type="button" className="btn" onClick={reset}>
-          Back to gallery
-        </button>
-      </section>
-    </main>
-  );
+  return <FlightDeck dryRun={dryRun} />;
 }
