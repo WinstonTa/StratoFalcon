@@ -98,11 +98,17 @@ Federal-style rowhouses with black shutters, window boxes of flowers and
 black iron gas lamps, leafy trees overhead.`,
   },
   "venice-beach": {
-    aerial: `Venice Beach in Los Angeles, California, seen from the air. The
-view runs along the coastline: a very wide band of pale sand, the paved
-boardwalk lined with tall palm trees and low colorful buildings, the Pacific
-Ocean with lines of white surf on one side, a fishing pier reaching into the
-water and the Santa Monica Mountains hazy on the horizon.`,
+    aerial: `Venice Beach in Los Angeles, California, seen from the air,
+flying low along the Venice boardwalk. In the foreground on the sand sits the
+Venice Beach Skatepark: smooth pale concrete bowls and ramps with skaters,
+surrounded by clusters of tall thin palm trees. Beside it the Ocean Front
+Walk, a wide paved pedestrian promenade crowded with walkers and cyclists and
+lined with low colorful buildings and murals, runs straight ahead into the
+distance. A very wide flat beach of pale sand and the Pacific Ocean with
+lines of white surf lie on the left, and the narrow tree-lined Venice canals
+with small arched footbridges thread between houses on the right. There is no
+pier and no building on the water. The Santa Monica Mountains are hazy on the
+horizon.`,
     ground: `The Venice Beach boardwalk in Los Angeles, California. A wide
 paved oceanfront walk lined with tall palm trees, colorful low shopfronts
 and murals on one side and open sand with the Pacific Ocean on the other,

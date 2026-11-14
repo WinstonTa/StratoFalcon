@@ -121,11 +121,11 @@ export const DESTINATIONS: Destination[] = [
   {
     id: "venice-beach",
     name: "Venice Beach",
-    tagline: "Cruise the California coastline above sand, surf and palms",
+    tagline: "Cruise the boardwalk above the skatepark, sand and surf",
     aerialImage: image("venice-beach", "aerial"),
     groundImage: image("venice-beach", "ground"),
     aerialKickoff:
-      "A first-person aerial view from a small aircraft flying forward along the coastline of Venice Beach, California, on a clear day. A wide band of pale sand runs ahead between white Pacific surf on the left and a palm-lined beachfront of colorful low buildings on the right, with a pier reaching into the water and hazy mountains in the distance. The camera glides smoothly forward along the beach as waves roll in below, photorealistic, in one continuous shot.",
+      "A first-person aerial view from a small aircraft flying forward low along the boardwalk of Venice Beach, California, on a clear day. The concrete bowls of the skatepark and tall palm trees sit on the sand below, the crowded boardwalk runs straight ahead past buildings painted with bright murals, the wide beach and white Pacific surf lie to the left and a canal with an arched footbridge to the right. The camera glides smoothly forward along the boardwalk toward hazy mountains, photorealistic, in one continuous shot.",
     groundKickoff:
       "A first-person walking view at eye level on the Venice Beach boardwalk in California in bright sunlight. Shopfronts with colorful awnings and tall palm trees line the left side, open sand and the Pacific Ocean stretch to the right, and cyclists and walkers move along the wide paved path. Palm fronds sway in the sea breeze as the viewer stands looking ahead, photorealistic, in one continuous shot.",
     audioPrompt:
