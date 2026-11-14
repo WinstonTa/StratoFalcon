@@ -70,8 +70,9 @@ export function unwrapOrbisMessage(raw: unknown): OrbisMessage {
 }
 
 const DEMO_CODE_STORAGE_KEY = "stratofalcon-demo-code";
+export const DEMO_CODE_HEADER = "x-demo-code";
 
-function readStoredDemoCode() {
+export function readStoredDemoCode() {
   try {
     return window.localStorage.getItem(DEMO_CODE_STORAGE_KEY) ?? "";
   } catch {
@@ -79,7 +80,7 @@ function readStoredDemoCode() {
   }
 }
 
-function storeDemoCode(code: string) {
+export function storeDemoCode(code: string) {
   try {
     window.localStorage.setItem(DEMO_CODE_STORAGE_KEY, code);
   } catch {
@@ -87,16 +88,53 @@ function storeDemoCode(code: string) {
   }
 }
 
-async function postTokenRequest(demoCode: string) {
-  const response = await fetch("/api/token", {
-    method: "POST",
-    headers: demoCode ? { "x-demo-code": demoCode } : undefined,
+// One prompt at a time, shared by every request that hits a 401 together, and
+// no second prompt in this page load once the visitor has dismissed one (the
+// guide polls every 20 s and must not nag).
+let codePrompt: Promise<string> | null = null;
+let promptDismissed = false;
+
+function askForDemoCode(): Promise<string> {
+  if (promptDismissed) return Promise.resolve("");
+  codePrompt ??= new Promise<string>((resolve) => {
+    const entered = window.prompt("Enter the demo access code")?.trim() ?? "";
+    if (!entered) promptDismissed = true;
+    resolve(entered);
+  }).finally(() => {
+    codePrompt = null;
   });
-  const result = (await response.json().catch(() => ({}))) as {
-    jwt?: string;
-    error?: string;
+  return codePrompt;
+}
+
+/**
+ * `fetch` for this app's own API routes. When the deployment sets
+ * DEMO_ACCESS_CODE the routes answer 401 without the code: the stored code is
+ * sent on every request, and on a 401 the visitor is asked for it once, the
+ * request is retried, and a code that works is remembered in this browser.
+ * The body must be re-sendable (a string or FormData, not a stream).
+ */
+export async function fetchWithDemoCode(
+  input: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const send = (code: string) => {
+    const headers = new Headers(init.headers);
+    if (code) headers.set(DEMO_CODE_HEADER, code);
+    return fetch(input, { ...init, headers });
   };
-  return { response, result };
+
+  const stored = readStoredDemoCode();
+  let response = await send(stored);
+  if (response.status !== 401) return response;
+
+  // Another request may have just stored a working code.
+  const latest = readStoredDemoCode();
+  const code = latest && latest !== stored ? latest : await askForDemoCode();
+  if (!code) return response;
+
+  response = await send(code);
+  if (response.status !== 401) storeDemoCode(code);
+  return response;
 }
 
 /**
@@ -105,15 +143,15 @@ async function postTokenRequest(demoCode: string) {
  * code once; it is then remembered in this browser.
  */
 export async function requestReactorJwt() {
-  let { response, result } = await postTokenRequest(readStoredDemoCode());
+  const response = await fetchWithDemoCode("/api/token", { method: "POST" });
+  const result = (await response.json().catch(() => ({}))) as {
+    jwt?: string;
+    error?: string;
+  };
 
   if (response.status === 401) {
-    const entered = window.prompt("Enter the demo access code")?.trim() ?? "";
-    if (!entered) throw new Error("A demo access code is required.");
-    ({ response, result } = await postTokenRequest(entered));
-    if (response.ok) storeDemoCode(entered);
+    throw new Error(result.error || "A demo access code is required.");
   }
-
   if (!response.ok || !result.jwt) {
     throw new Error(result.error || "Could not create a Reactor token");
   }

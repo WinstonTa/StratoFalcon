@@ -1,9 +1,12 @@
 /**
  * Browser-side wrappers for the simulation routes (app/api/sim/**). Every
  * route answers `{ error }` with a non-2xx status on failure; these wrappers
- * turn that into a thrown Error with a readable message.
+ * turn that into a thrown Error with a readable message. Every request goes
+ * through fetchWithDemoCode, so a gated deployment gets the `x-demo-code`
+ * header and a single prompt on the first 401.
  */
 
+import { fetchWithDemoCode } from "@/lib/orbis";
 import type {
   ApiError,
   CommandRequest,
@@ -27,7 +30,7 @@ async function postJson<T>(
   fallback: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithDemoCode(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -73,7 +76,7 @@ export async function requestKickoff(
   mode: SimMode,
   placeHint?: string,
 ): Promise<KickoffResponse> {
-  const response = await fetch("/api/sim/kickoff", {
+  const response = await fetchWithDemoCode("/api/sim/kickoff", {
     method: "POST",
     body: imageForm(image, { mode, placeHint }),
   });
@@ -89,7 +92,7 @@ export async function requestSeed(
   view: SeedView,
   placeHint?: string,
 ): Promise<Blob> {
-  const response = await fetch("/api/sim/seed", {
+  const response = await fetchWithDemoCode("/api/sim/seed", {
     method: "POST",
     body: imageForm(image, { view, placeHint }),
   });
