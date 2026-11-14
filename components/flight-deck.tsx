@@ -3,6 +3,7 @@
 import { ReactorProvider, ReactorView } from "@reactor-team/js-sdk";
 import { useEffect, useRef, useState } from "react";
 
+import { CommandBar } from "@/components/command-bar";
 import { destinationCode } from "@/components/destination-gallery";
 import {
   FlightHud,
@@ -401,6 +402,7 @@ function FlightSession({
           <div className="dock">
             <FlightKeys disabled={!flying} />
             <SituationPanel disabled={!flying} />
+            <CommandBar disabled={!flying} />
           </div>
         </section>
         <MissionLog />

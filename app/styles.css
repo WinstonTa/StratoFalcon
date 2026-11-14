@@ -1594,3 +1594,96 @@ main.starter {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
 }
+
+.command {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.command-input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 14px;
+  color: var(--text);
+  font-size: clamp(1.05rem, 1.2vw, 1.3rem);
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+}
+
+.command-input::placeholder {
+  color: var(--faint);
+}
+
+.command-input:focus {
+  border-color: var(--cyan);
+  outline: 1px solid var(--cyan);
+}
+
+.command-input:read-only {
+  color: var(--magenta);
+  border-color: var(--magenta);
+}
+
+.mic {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 15px;
+  color: var(--text);
+  font-family: var(--font-display-stack);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+}
+
+.mic-dot {
+  width: 11px;
+  height: 11px;
+  background: var(--red);
+  border-radius: 50%;
+}
+
+.mic.is-listening {
+  color: var(--ink);
+  background: var(--magenta);
+  border-color: var(--magenta);
+}
+
+.mic.is-listening .mic-dot {
+  background: var(--ink);
+  animation: blink 500ms steps(2, start) infinite;
+}
+
+.mic:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.command-status {
+  flex: none;
+  min-width: 15ch;
+  color: var(--amber);
+  font-family: var(--font-mono-stack);
+  font-size: 0.88rem;
+  letter-spacing: 0.06em;
+}
+
+.command-status.is-busy {
+  color: var(--magenta);
+  animation: blink 900ms steps(2, start) infinite;
+}
+
+.command-status:empty {
+  display: none;
+}
