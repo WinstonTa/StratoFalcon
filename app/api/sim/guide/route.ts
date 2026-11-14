@@ -20,6 +20,7 @@ const MAX_RECENT = 8;
 const MAX_ITEM_CHARS = 300;
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 /** Returns cleaned strings, or undefined when the value is not a string array. */
 function stringList(raw: unknown, maxItems: number): string[] | undefined {

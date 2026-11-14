@@ -25,6 +25,7 @@ const MAX_SAY_WORDS = 12;
 const FALLBACK_SAY = "Copy that.";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 function slug(text: string): string {
   return (
