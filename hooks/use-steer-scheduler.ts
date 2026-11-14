@@ -3,16 +3,15 @@
 import { useReactor, useReactorMessage } from "@reactor-team/js-sdk";
 import { useCallback, useEffect, useRef } from "react";
 
+import { CHUNK_MS, SteerPacer, type SteerTrigger } from "@/hooks/steer-pacer";
 import { unwrapOrbisMessage } from "@/lib/orbis";
 import { compileSteerSteps } from "@/lib/sim/prompt-compiler";
 import { useSimStore } from "@/lib/sim/store";
 
-/** One Orbis chunk: 33 frames at 18 fps. Used only to pace the dry run. */
-const CHUNK_MS = 1830;
-/** Wait this long after an input before the fallback send. */
+/** Wait this long after an input before the fallback looks at the queue. */
 const DEBOUNCE_MS = 250;
-/** No chunk_complete for this long means the chunk clock cannot be trusted. */
-const STALL_MS = 4000;
+/** How often the fallback re-checks while the chunk clock is silent. */
+const WATCHDOG_MS = 500;
 /** If active_prompt never matches, treat an acknowledged steer as applied after this many chunks. */
 const APPLIED_FALLBACK_CHUNKS = 3;
 
@@ -25,12 +24,11 @@ interface SentSteer {
 /**
  * Reconciles the model with the simulation state, one sentence at a time.
  *
- * Orbis picks up a new prompt at the next chunk boundary, so sending faster
- * than one steer per chunk only overwrites the previous one. On every
- * `chunk_complete` (and shortly after an input, if nothing has gone out since
- * the last boundary) this takes the FIRST pending change between
+ * On every `chunk_complete` this takes the FIRST pending change between
  * `lastSentState` and `state`, sends that single sentence with `set_prompt`,
- * and advances `lastSentState` by only that change. The rest wait their turn.
+ * and advances `lastSentState` by only that change. The rest wait for the next
+ * boundary. A timer fallback covers a silent chunk clock; the pacing rules live
+ * in hooks/steer-pacer.ts.
  *
  * `dryRun` paces itself with a timer and logs prompts without sending them.
  */
@@ -45,66 +43,60 @@ export function useSteerScheduler({
 
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
-  const sentThisChunk = useRef(false);
-  const lastChunkAt = useRef(0);
-  const lastSendAt = useRef(0);
+  const pacer = useRef<SteerPacer | null>(null);
+  pacer.current ??= new SteerPacer(Date.now());
   const sent = useRef<SentSteer[]>([]);
 
-  const maybeSend = useCallback(() => {
-    if (!enabledRef.current) return;
+  const maybeSend = useCallback(
+    (trigger: SteerTrigger) => {
+      if (!enabledRef.current || !pacer.current) return;
 
-    const now = Date.now();
-    if (sentThisChunk.current) {
-      // At most one steer per chunk, unless the chunk clock has stalled.
-      const stalled =
-        !dryRun &&
-        now - lastChunkAt.current > STALL_MS &&
-        now - lastSendAt.current > STALL_MS / 2;
-      if (!stalled) return;
-    }
+      const store = useSimStore.getState();
+      const [step] = compileSteerSteps(store.lastSentState, store.state);
+      if (!step) return;
 
-    const store = useSimStore.getState();
-    const [step] = compileSteerSteps(store.lastSentState, store.state);
-    if (!step) return;
+      const now = Date.now();
+      if (!pacer.current.canSend(trigger, now)) return;
+      pacer.current.noteSend(now);
 
-    sentThisChunk.current = true;
-    lastSendAt.current = now;
-    const record: SentSteer = {
-      prompt: step.prompt,
-      acknowledged: dryRun,
-      chunksSinceSent: 0,
-    };
-    sent.current.push(record);
-    store.log("prompt", step.prompt, "pending");
+      const record: SentSteer = {
+        prompt: step.prompt,
+        acknowledged: dryRun,
+        chunksSinceSent: 0,
+      };
+      sent.current.push(record);
+      store.log("prompt", step.prompt, "pending");
 
-    if (!dryRun) {
-      // sendCommand never rejects; a refusal comes back as command_error.
-      void sendCommand("set_prompt", { prompt: step.prompt }).then((raw) => {
-        if (!raw) return;
-        const reply = unwrapOrbisMessage(raw);
-        if (reply.type === "prompt_accepted") {
-          record.acknowledged = true;
-        } else if (reply.type === "command_error") {
-          sent.current = sent.current.filter((entry) => entry !== record);
-          useSimStore
-            .getState()
-            .log(
-              "system",
-              `Orbis refused the steer: ${reply.reason || "no reason given"}`,
-            );
-        }
-      });
-    }
+      if (!dryRun) {
+        // sendCommand never rejects; a refusal comes back as command_error.
+        void sendCommand("set_prompt", { prompt: step.prompt }).then((raw) => {
+          if (!raw) return;
+          const reply = unwrapOrbisMessage(raw);
+          if (reply.type === "prompt_accepted") {
+            record.acknowledged = true;
+          } else if (reply.type === "command_error") {
+            sent.current = sent.current.filter((entry) => entry !== record);
+            useSimStore
+              .getState()
+              .log(
+                "system",
+                `Orbis refused the steer: ${reply.reason || "no reason given"}`,
+              );
+          }
+        });
+      }
 
-    // Orbis has now been told about this one change, and only this one.
-    store.advanceLastSent(step.delta);
-    if (step.delta.event) store.clearEvent();
-  }, [dryRun, sendCommand]);
+      // Orbis has now been told about this one change, and only this one.
+      store.advanceLastSent(step.delta);
+      if (step.delta.event) store.clearEvent();
+    },
+    [dryRun, sendCommand],
+  );
 
   /** A chunk boundary: settle applied markers, then send the next steer. */
   const onChunk = useCallback(
     (activePrompt: string | null | undefined) => {
-      lastChunkAt.current = Date.now();
+      pacer.current?.noteChunk(Date.now());
       const { markPromptApplied } = useSimStore.getState();
       const active =
         typeof activePrompt === "string" ? activePrompt.trim() : null;
@@ -129,8 +121,7 @@ export function useSteerScheduler({
       });
       sent.current = remaining;
 
-      sentThisChunk.current = false;
-      maybeSend();
+      maybeSend("chunk");
     },
     [maybeSend],
   );
@@ -147,18 +138,17 @@ export function useSteerScheduler({
     }
   });
 
-  // Fallback after an input: do not wait for the next boundary if nothing has
-  // been sent since the last one.
+  // Fallback for a silent chunk clock. The pacer refuses it while chunk
+  // boundaries are arriving, so this never adds a second steer to a chunk.
   useEffect(() => {
     if (!enabled) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = useSimStore.subscribe((next, previous) => {
       if (next.state === previous.state) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(maybeSend, DEBOUNCE_MS);
+      timer = setTimeout(() => maybeSend("fallback"), DEBOUNCE_MS);
     });
-    // Watchdog for a stalled chunk clock.
-    const watchdog = setInterval(maybeSend, 1000);
+    const watchdog = setInterval(() => maybeSend("fallback"), WATCHDOG_MS);
     return () => {
       unsubscribe();
       if (timer) clearTimeout(timer);
@@ -173,13 +163,9 @@ export function useSteerScheduler({
     return () => clearInterval(clock);
   }, [dryRun, enabled, onChunk]);
 
-  // A new flight starts with a clean slate.
+  // Each enabled stretch starts with a clean slate.
   useEffect(() => {
-    if (enabled) {
-      lastChunkAt.current = Date.now();
-      return;
-    }
-    sent.current = [];
-    sentThisChunk.current = false;
+    pacer.current?.reset(Date.now());
+    if (!enabled) sent.current = [];
   }, [enabled]);
 }
