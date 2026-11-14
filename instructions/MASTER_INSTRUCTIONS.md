@@ -203,7 +203,7 @@ Times are PST today. Gates are integration checkpoints; agents keep pulling the 
 - [x] Token route: authorize both models, raise session cap to 900 s, optional `DEMO_ACCESS_CODE` check.
 - [x] Add `NEXT_PUBLIC_ORBIS_MODEL` config (default Dynamic) and update `.env.example`.
 - [x] Add `vitest` and a `test` script (architect is the only writer of `package.json`).
-- [ ] Launch the three subagents (§6).
+- [x] Launch the three subagents (§6). See [phases/phase-0-architect.md](phases/phase-0-architect.md).
 
 ### Phase 1 — Flight vertical slice (2:35–3:20)
 
