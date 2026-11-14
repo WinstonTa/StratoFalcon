@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   applyFlightControl,
@@ -10,9 +10,8 @@ import {
   isTourControlActive,
   TOUR_KEYS,
 } from "@/hooks/use-flight-controls";
-import { compileSteerQueue } from "@/lib/sim/prompt-compiler";
-import { useSimStore } from "@/lib/sim/store";
-import type { FlightState } from "@/lib/sim/types";
+import { statesEqual, useSimStore } from "@/lib/sim/store";
+import type { FlightState, TourState } from "@/lib/sim/types";
 
 const SPEED_KNOTS: Record<FlightState["speed"], number> = {
   slow: 110,
@@ -25,6 +24,11 @@ const ALTITUDE_FEET: Record<FlightState["altitude"], number> = {
   mid: 1500,
   high: 9000,
 };
+
+const MIN_FEET = 250;
+const MAX_FEET = 14_000;
+/** Feet gained or lost per 100 ms tick while climbing or descending. */
+const FEET_PER_TICK = 14;
 
 /** Eases a displayed number toward its target so gauges roll, not jump. */
 function useRollingNumber(target: number, durationMs = 1400) {
@@ -51,84 +55,134 @@ function useRollingNumber(target: number, durationMs = 1400) {
 }
 
 /**
- * How far to nudge the video itself. The nudge is strongest for the first few
- * seconds after an input, covering the model's 2–4 s latency, then relaxes to a
- * small residual so it does not stack on top of the model's own motion.
+ * The altimeter is a local instrument: it winds up while the pilot holds a
+ * climb and down in a descent, and never changes the simulation state or sends
+ * a prompt by itself. When the co-pilot changes the altitude band, the needle
+ * eases to that band.
  */
-export function useVideoFeedbackStyle(): CSSProperties {
-  const mode = useSimStore((store) => store.state.mode);
-  const flight = useSimStore((store) => store.state.flight);
-  const tour = useSimStore((store) => store.state.tour);
-  const signature = `${mode}|${flight.bank}|${flight.pitch}|${flight.speed}|${tour.move}|${tour.turn}|${tour.gaze}`;
-  const [boost, setBoost] = useState(false);
-  const first = useRef(true);
+function useAltimeter(flight: FlightState) {
+  const [feet, setFeet] = useState(ALTITUDE_FEET[flight.altitude]);
+  const target = useRef<number | null>(null);
+  const firstBand = useRef(true);
 
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
+    if (firstBand.current) {
+      firstBand.current = false;
       return;
     }
-    setBoost(true);
-    const timer = setTimeout(() => setBoost(false), 4500);
-    return () => clearTimeout(timer);
-  }, [signature]);
+    target.current = ALTITUDE_FEET[flight.altitude];
+  }, [flight.altitude]);
 
-  let roll = 0;
-  let shiftX = 0;
-  let shiftY = 0;
-  let push = 0;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFeet((current) => {
+        if (target.current !== null) {
+          const next = current + (target.current - current) * 0.12;
+          if (Math.abs(target.current - next) < 15) {
+            const settled = target.current;
+            target.current = null;
+            return settled;
+          }
+          return next;
+        }
+        if (flight.pitch === "climb") {
+          return Math.min(current + FEET_PER_TICK, MAX_FEET);
+        }
+        if (flight.pitch === "descend") {
+          return Math.max(current - FEET_PER_TICK, MIN_FEET);
+        }
+        return current;
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [flight.pitch]);
 
-  if (mode === "flight") {
-    // Left bank drops the left wing, so the world appears to turn clockwise.
-    roll =
-      (flight.bank === "left" ? 1 : flight.bank === "right" ? -1 : 0) *
-      (boost ? 3 : 1.2);
-    shiftY =
-      (flight.pitch === "climb" ? 1 : flight.pitch === "descend" ? -1 : 0) *
-      (boost ? 2 : 0.8);
-    push = flight.speed === "fast" ? (boost ? 0.06 : 0.025) : 0;
-  } else {
-    // Turning left slides the scene to the right; looking up slides it down.
-    shiftX =
-      (tour.turn === "left" ? 1 : tour.turn === "right" ? -1 : 0) *
-      (boost ? 2.5 : 0.8);
-    shiftY = tour.gaze === "up" ? (boost ? 2.5 : 1) : 0;
-    push = tour.move === "walk" ? (boost ? 0.04 : 0.015) : 0;
-  }
-
-  // Scale up just enough that rotation and shift never expose an edge.
-  const radians = (Math.abs(roll) * Math.PI) / 180;
-  const cover =
-    (Math.cos(radians) + (16 / 9) * Math.sin(radians)) *
-    (1 + (2 * Math.max(Math.abs(shiftX), Math.abs(shiftY))) / 100);
-  const zoom = Math.max(cover, 1) * (1 + push);
-
-  return {
-    transform: `translate(${shiftX}%, ${shiftY}%) rotate(${roll}deg) scale(${zoom.toFixed(4)})`,
-    transitionDuration: boost ? "700ms" : "2600ms",
-  };
+  return feet;
 }
 
-function HudFoot({ lines }: { lines: string[] }) {
+interface Readout {
+  headline: string;
+  hints: string[];
+}
+
+/** What the aircraft is doing right now, and how to stop it doing that. */
+export function describeFlight(flight: FlightState): Readout {
+  const parts: string[] = [];
+  const hints: string[] = [];
+
+  if (flight.bank === "left") {
+    parts.push("Turning left");
+    hints.push("A again to straighten");
+  } else if (flight.bank === "right") {
+    parts.push("Turning right");
+    hints.push("D again to straighten");
+  }
+  if (flight.pitch === "climb") {
+    parts.push("Climbing");
+    hints.push("W again to level");
+  } else if (flight.pitch === "descend") {
+    parts.push("Descending");
+    hints.push("S again to level");
+  }
+  if (flight.speed === "fast") {
+    parts.push("Fast");
+    hints.push("F to slow");
+  } else if (flight.speed === "slow") {
+    parts.push("Slow");
+    hints.push("R to speed up");
+  }
+
+  if (!parts.length) {
+    return {
+      headline: "Straight and level",
+      hints: ["W S A D to steer", "a key stays on until you press it again"],
+    };
+  }
+  if (flight.bank !== "level" && flight.pitch !== "level") {
+    hints.push("Space levels everything");
+  }
+  return { headline: parts.join(" · "), hints };
+}
+
+export function describeTour(tour: TourState): Readout {
+  const parts: string[] = [tour.move === "walk" ? "Walking" : "Standing"];
+  const hints: string[] = [tour.move === "walk" ? "S to stop" : "W to walk"];
+
+  if (tour.turn !== "none") {
+    parts.push(`Turning ${tour.turn}`);
+    hints.push(`${tour.turn === "left" ? "A" : "D"} again to face ahead`);
+  }
+  if (tour.gaze === "up") {
+    parts.push("Looking up");
+    hints.push("Q again to look ahead");
+  }
+  return { headline: parts.join(" · "), hints };
+}
+
+function HudReadout({ headline, hints }: Readout) {
+  return (
+    <div className="hud-readout">
+      <strong>{headline}</strong>
+      <span>{hints.join(" · ")}</span>
+    </div>
+  );
+}
+
+function HudFoot() {
   const state = useSimStore((store) => store.state);
   const lastSentState = useSimStore((store) => store.lastSentState);
-  const queued = compileSteerQueue(lastSentState, state).length;
+  const inSync = statesEqual(lastSentState, state);
   const { environment, event } = state;
 
   return (
     <div className="hud-foot">
-      <div className="hud-attitude">
-        {lines.map((line) => (
-          <span key={line}>{line}</span>
-        ))}
-      </div>
       <div className="hud-env">
         <span>{environment.timeOfDay}</span>
         <span>{environment.weather}</span>
         {event && <span className="hud-env-event">{event.label}</span>}
       </div>
-      <div className={`hud-sync${queued ? " is-steering" : ""}`}>
-        {queued ? `Steering model · ${queued} queued` : "Model in sync"}
+      <div className={`hud-sync${inSync ? "" : " is-steering"}`}>
+        {inSync ? "Model in sync" : "Sending to model"}
       </div>
     </div>
   );
@@ -136,45 +190,32 @@ function HudFoot({ lines }: { lines: string[] }) {
 
 function TourHud() {
   const tour = useSimStore((store) => store.state.tour);
-  const lines = [
-    tour.move === "walk" ? "Walking" : "Standing",
-    tour.turn === "none" ? "Facing ahead" : `Turning ${tour.turn}`,
-    ...(tour.gaze === "up" ? ["Looking up"] : []),
-  ];
 
   return (
     <div className="hud hud-tour" aria-hidden="true">
       <div className="hud-shade" />
-      <div className="hud-tag">On foot · street level</div>
-      <HudFoot lines={lines} />
+      <HudReadout {...describeTour(tour)} />
+      <HudFoot />
     </div>
   );
 }
 
 function AirHud() {
   const flight = useSimStore((store) => store.state.flight);
-  const speed = useRollingNumber(SPEED_KNOTS[flight.speed]);
-  const altitude = useRollingNumber(ALTITUDE_FEET[flight.altitude], 5000);
+  const speed = useRollingNumber(SPEED_KNOTS[flight.speed], 2200);
+  const altitude = useAltimeter(flight);
 
-  const bankAngle =
-    flight.bank === "left" ? 14 : flight.bank === "right" ? -14 : 0;
+  // Small, slow movements only: the HUD shows attitude without swinging.
+  const bankAngle = flight.bank === "left" ? 7 : flight.bank === "right" ? -7 : 0;
   const pitchShift =
-    flight.pitch === "climb" ? 20 : flight.pitch === "descend" ? -20 : 0;
-
-  const lines = [
-    flight.bank === "level" ? "Wings level" : `Bank ${flight.bank}`,
-    flight.pitch === "level"
-      ? "Level flight"
-      : flight.pitch === "climb"
-        ? "Climbing"
-        : "Descending",
-  ];
+    flight.pitch === "climb" ? 6 : flight.pitch === "descend" ? -6 : 0;
 
   return (
     <div className="hud" aria-hidden="true">
       <div className="hud-shade" />
+      <HudReadout {...describeFlight(flight)} />
 
-      {/* Horizon line and pitch ladder: tilts with bank, slides with pitch. */}
+      {/* Artificial horizon: tilts gently with bank, slides with pitch. */}
       <div
         className="hud-horizon"
         style={{
@@ -203,10 +244,17 @@ function AirHud() {
           {Math.round(altitude / 10) * 10}
           <span className={`hud-trend hud-trend-${flight.pitch}`} />
         </span>
-        <span className="hud-unit">FT · {flight.altitude}</span>
+        <span className="hud-unit">
+          FT ·{" "}
+          {flight.pitch === "climb"
+            ? "climbing"
+            : flight.pitch === "descend"
+              ? "descending"
+              : "holding"}
+        </span>
       </div>
 
-      <HudFoot lines={lines} />
+      <HudFoot />
     </div>
   );
 }
@@ -217,8 +265,10 @@ export function FlightHud() {
 }
 
 /**
- * The key legend under the viewport, for whichever mode is active. Keycaps
- * light while latched. The last button is the transition: Land or Take off.
+ * The key legend under the viewport, for whichever mode is active. A latched
+ * key stays lit until it is pressed again. The neutral keys (Level out, Stop)
+ * are never lit, so a lit key always means "this is on". The last button is
+ * the transition: Land or Take off.
  */
 export function FlightKeys({
   disabled,
@@ -239,36 +289,40 @@ export function FlightKeys({
   return (
     <div className="keys" role="group" aria-label="Controls">
       {mode === "flight"
-        ? FLIGHT_KEYS.map((key) => (
-            <button
-              key={key.code}
-              type="button"
-              className={`key${isControlActive(key.control, flight) ? " is-on" : ""}`}
-              disabled={disabled}
-              onClick={(event) => {
-                event.currentTarget.blur();
-                applyFlightControl(key.control, key.keycap);
-              }}
-            >
-              <kbd>{key.keycap}</kbd>
-              <span>{key.label}</span>
-            </button>
-          ))
-        : TOUR_KEYS.map((key) => (
-            <button
-              key={key.code}
-              type="button"
-              className={`key${isTourControlActive(key.control, tour) ? " is-on" : ""}`}
-              disabled={disabled}
-              onClick={(event) => {
-                event.currentTarget.blur();
-                applyTourControl(key.control, key.keycap);
-              }}
-            >
-              <kbd>{key.keycap}</kbd>
-              <span>{key.label}</span>
-            </button>
-          ))}
+        ? FLIGHT_KEYS.map((key) => {
+            const on =
+              key.control !== "level" && isControlActive(key.control, flight);
+            return (
+              <button
+                key={key.code}
+                type="button"
+                className={`key${on ? " is-on" : ""}`}
+                aria-pressed={on}
+                disabled={disabled}
+                onClick={() => applyFlightControl(key.control, key.keycap)}
+              >
+                <kbd>{key.keycap}</kbd>
+                <span>{key.label}</span>
+              </button>
+            );
+          })
+        : TOUR_KEYS.map((key) => {
+            const on =
+              key.control !== "stop" && isTourControlActive(key.control, tour);
+            return (
+              <button
+                key={key.code}
+                type="button"
+                className={`key${on ? " is-on" : ""}`}
+                aria-pressed={on}
+                disabled={disabled}
+                onClick={() => applyTourControl(key.control, key.keycap)}
+              >
+                <kbd>{key.keycap}</kbd>
+                <span>{key.label}</span>
+              </button>
+            );
+          })}
 
       {mode === "flight" ? (
         <button
@@ -276,10 +330,7 @@ export function FlightKeys({
           className="key key-transition"
           disabled={disabled || Boolean(landHint)}
           title={landHint}
-          onClick={(event) => {
-            event.currentTarget.blur();
-            onLand();
-          }}
+          onClick={onLand}
         >
           <kbd>L</kbd>
           <span>{landHint ?? "Land"}</span>
@@ -289,10 +340,7 @@ export function FlightKeys({
           type="button"
           className="key key-transition"
           disabled={disabled}
-          onClick={(event) => {
-            event.currentTarget.blur();
-            onTakeOff();
-          }}
+          onClick={onTakeOff}
         >
           <kbd>T</kbd>
           <span>Take off</span>

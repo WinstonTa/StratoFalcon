@@ -33,7 +33,6 @@ export const FLIGHT_KEYS: FlightKey[] = [
 ];
 
 const SPEEDS: FlightState["speed"][] = ["slow", "cruise", "fast"];
-const ALTITUDES: FlightState["altitude"][] = ["low", "mid", "high"];
 
 /** Whether a control is currently latched on, for lighting its keycap. */
 export function isControlActive(control: FlightControl, flight: FlightState) {
@@ -229,46 +228,8 @@ export function useFlightControls(enabled: boolean, transitions?: TransitionKeys
       else transition?.();
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Capture phase: no focused widget can swallow a flight key first.
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [enabled]);
-}
-
-const BAND_SECONDS = 7;
-const LIMIT_SECONDS = 1.5;
-
-/**
- * A held climb or descent moves the aircraft one altitude band after a few
- * seconds, and levels off by itself at the top or bottom band. This keeps the
- * altitude gauge honest and stops the model being asked to climb forever.
- */
-export function useAltitudeBands(enabled: boolean) {
-  const pitch = useSimStore((store) => store.state.flight.pitch);
-  const altitude = useSimStore((store) => store.state.flight.altitude);
-
-  useEffect(() => {
-    if (!enabled || pitch === "level") return;
-    const target = ALTITUDES.indexOf(altitude) + (pitch === "climb" ? 1 : -1);
-    const atLimit = target < 0 || target >= ALTITUDES.length;
-
-    const timer = setTimeout(
-      () => {
-        const { applyDelta, log } = useSimStore.getState();
-        if (atLimit) {
-          log(
-            "system",
-            pitch === "climb"
-              ? "Ceiling reached. Levelling off"
-              : "Minimum altitude. Levelling off",
-          );
-          applyDelta({ flight: { pitch: "level" } });
-        } else {
-          log("system", `Passing into the ${ALTITUDES[target]} altitude band`);
-          applyDelta({ flight: { altitude: ALTITUDES[target] } });
-        }
-      },
-      (atLimit ? LIMIT_SECONDS : BAND_SECONDS) * 1000,
-    );
-    return () => clearTimeout(timer);
-  }, [altitude, enabled, pitch]);
 }

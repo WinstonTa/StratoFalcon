@@ -5,18 +5,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { CommandBar } from "@/components/command-bar";
 import { destinationCode } from "@/components/destination-gallery";
-import {
-  FlightHud,
-  FlightKeys,
-  useVideoFeedbackStyle,
-} from "@/components/flight-hud";
+import { FlightHud, FlightKeys } from "@/components/flight-hud";
 import { MissionLog } from "@/components/mission-log";
 import { SituationPanel } from "@/components/situation-panel";
 import { CHUNK_MS } from "@/hooks/steer-pacer";
-import {
-  useAltitudeBands,
-  useFlightControls,
-} from "@/hooks/use-flight-controls";
+import { useFlightControls } from "@/hooks/use-flight-controls";
 import { cancelGuideSpeech, useGuide } from "@/hooks/use-guide";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
@@ -219,13 +212,35 @@ function FlightSession({
     if (!dryRun) await launchView("flight", true);
   };
 
+  // Keyboard focus lives on the deck itself. After any click on a button the
+  // focus comes straight back here, so W/A/S/D always steer; only the command
+  // box is allowed to keep it.
+  const deckRef = useRef<HTMLElement>(null);
+  const refocusDeck = (target: EventTarget | null) => {
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+    deckRef.current?.focus({ preventScroll: true });
+  };
+  useEffect(() => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    ) {
+      return;
+    }
+    deckRef.current?.focus({ preventScroll: true });
+  }, [phase]);
+
   // Keys and gauges are local: they respond on the same frame as the press.
   useFlightControls(live, {
     onLand: () => void land(),
     onTakeOff: () => void takeOff(),
   });
-  useAltitudeBands(flying && !restarting);
-  const feedbackStyle = useVideoFeedbackStyle();
   // State changes reach Orbis one sentence per chunk boundary.
   useSteerScheduler({
     enabled: (live || descending) && (dryRun || connected),
@@ -427,7 +442,12 @@ function FlightSession({
         : "Preparing ground view";
 
   return (
-    <main className="deck">
+    <main
+      ref={deckRef}
+      className="deck"
+      tabIndex={-1}
+      onClick={(event) => refocusDeck(event.target)}
+    >
       <header className="deck-bar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
@@ -484,7 +504,7 @@ function FlightSession({
         <section className="stage">
           <div className="viewport-wrap">
             <div className="viewport">
-              <div className="video-layer" style={feedbackStyle}>
+              <div className="video-layer">
                 {dryRun && (
                   <img
                     className="video-still"

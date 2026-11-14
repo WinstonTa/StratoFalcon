@@ -691,11 +691,7 @@ input {
   container-type: size;
 }
 
-/* The video itself rolls, shifts and pushes in with the controls. */
-.video-layer {
-  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  will-change: transform;
-}
+/* The video never moves, tilts or zooms: all feedback is in the HUD. */
 
 .hud {
   position: absolute;
@@ -727,8 +723,8 @@ input {
   left: 20cqw;
   width: 60cqw;
   height: 0;
-  opacity: 0.85;
-  transition: transform 650ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  opacity: 0.7;
+  transition: transform 1400ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .hud-horizon-line,
@@ -1804,4 +1800,63 @@ main.starter {
 .upload-overlay .gallery-lede {
   max-width: 44ch;
   color: var(--text);
+}
+
+/* ------------------------------------------------------------------
+   Comfort pass: steady video, a plain-language readout, obvious latches
+   ------------------------------------------------------------------ */
+
+.deck:focus {
+  outline: none;
+}
+
+.hud-readout {
+  position: absolute;
+  top: 3cqh;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5cqh;
+  width: max-content;
+  max-width: 80cqw;
+  padding: 1.1cqh 2.2cqw 1.3cqh;
+  text-align: center;
+  background: #05070ab8;
+  border-top: 3px solid currentColor;
+  transform: translateX(-50%);
+}
+
+.hud-readout strong {
+  font-family: var(--font-display-stack);
+  font-size: clamp(22px, 6.2cqh, 68px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.05em;
+}
+
+.hud-readout span {
+  color: var(--text);
+  font-size: clamp(11px, 2.3cqh, 24px);
+  letter-spacing: 0.1em;
+}
+
+.hud-foot {
+  grid-template-columns: 1fr auto;
+}
+
+/* A latched key is filled, not just outlined, and stays that way. */
+.key.is-on {
+  color: var(--ink);
+  background: var(--hud);
+  border-color: var(--hud);
+  box-shadow:
+    0 0 0 2px var(--hud),
+    0 0 22px #6dffb373;
+}
+
+.key.is-on kbd {
+  color: var(--hud);
+  background: var(--ink);
+  border-color: var(--ink);
 }
