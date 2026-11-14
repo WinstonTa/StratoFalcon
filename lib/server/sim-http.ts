@@ -70,3 +70,52 @@ export function safeText(response: { text?: string | undefined }): string {
     return "";
   }
 }
+
+export const MAX_UPLOAD_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/** Image types both Gemini text and image models accept inline. */
+const UPLOAD_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+
+export type UploadedImage =
+  | { ok: true; mimeType: string; buffer: Buffer }
+  | { ok: false; message: string; status: number };
+
+/** Parses multipart form data. Returns undefined when the body is not a form. */
+export async function readFormData(
+  request: Request,
+): Promise<FormData | undefined> {
+  try {
+    return await request.formData();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Validates the `image` field of an upload form: present, a supported type, 10 MB or smaller. */
+export async function readUploadedImage(form: FormData): Promise<UploadedImage> {
+  const image = form.get("image");
+  if (!(image instanceof File) || image.size === 0) {
+    return { ok: false, message: "An image file is required", status: 400 };
+  }
+  if (!UPLOAD_IMAGE_TYPES.includes(image.type)) {
+    return {
+      ok: false,
+      message: "The image must be a PNG, JPEG or WebP file",
+      status: 400,
+    };
+  }
+  if (image.size > MAX_UPLOAD_IMAGE_BYTES) {
+    return { ok: false, message: "The image must be 10 MB or smaller", status: 413 };
+  }
+  return {
+    ok: true,
+    mimeType: image.type,
+    buffer: Buffer.from(await image.arrayBuffer()),
+  };
+}
+
+/** Optional free-text hint about the place, trimmed and capped. */
+export function readPlaceHint(form: FormData): string {
+  const hint = form.get("placeHint");
+  return typeof hint === "string" ? collapseWhitespace(hint).slice(0, 120) : "";
+}

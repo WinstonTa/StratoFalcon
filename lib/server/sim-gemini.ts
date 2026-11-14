@@ -12,7 +12,7 @@ import { ORBIS_PROMPT_MODEL } from "@/lib/orbis-prompt";
 
 import { safeText } from "./sim-http";
 
-const ATTEMPT_TIMEOUTS_MS = [4_000, 6_000];
+const DEFAULT_ATTEMPT_TIMEOUTS_MS = [4_000, 6_000];
 
 export interface SimGeminiRequest {
   apiKey: string;
@@ -22,6 +22,10 @@ export interface SimGeminiRequest {
   maxOutputTokens: number;
   /** Standard JSON Schema. When set, the reply is requested as JSON. */
   responseJsonSchema?: unknown;
+  /** Optional image sent after the text, base64 without a data: prefix. */
+  image?: { mimeType: string; data: string };
+  /** One deadline per attempt. Defaults to 4 s, then 6 s. */
+  attemptTimeoutsMs?: number[];
 }
 
 export interface SimGeminiResult {
@@ -42,13 +46,16 @@ export async function callSimGemini(
   let timedOut = false;
   let text = "";
 
-  for (const timeoutMs of ATTEMPT_TIMEOUTS_MS) {
+  for (const timeoutMs of request.attemptTimeoutsMs ?? DEFAULT_ATTEMPT_TIMEOUTS_MS) {
     attempts += 1;
     const signal = AbortSignal.timeout(timeoutMs);
     try {
       const response = await ai.models.generateContent({
         model: ORBIS_PROMPT_MODEL,
-        contents: [{ text: request.userText }],
+        contents: [
+          { text: request.userText },
+          ...(request.image ? [{ inlineData: request.image }] : []),
+        ],
         config: {
           systemInstruction: request.systemInstruction,
           temperature: request.temperature,
