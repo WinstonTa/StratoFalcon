@@ -228,6 +228,43 @@ describe("steer pacing", () => {
     expect(wired.sent[2].prompt).not.toMatch(/weather changes/i);
   });
 
+  // Added by qa-reviewer (third pass), who owns this file from here on.
+  it("fires the same event again after the first was confirmed, with nothing else changed", () => {
+    const fireworks = (id: string) => ({
+      id,
+      label: "Fireworks",
+      prompt: "Fireworks burst in bright colors across the sky ahead.",
+    });
+
+    store().applyDelta({ event: fireworks("fireworks-1") });
+    vi.advanceTimersByTime(DEBOUNCE_MS);
+    expect(wired.sent).toHaveLength(1);
+    store().confirmApplied(wired.sent[0].state);
+    expect(store().state.event).toBeNull();
+
+    // Ten seconds later the viewer presses the same button again.
+    vi.advanceTimersByTime(10_000);
+    store().applyDelta({ event: fireworks("fireworks-2") });
+    vi.advanceTimersByTime(MIN_SEND_GAP_MS);
+
+    expect(wired.sent).toHaveLength(2);
+    expect(wired.sent[1].prompt).toContain("Fireworks burst");
+  });
+
+  it("an unconfirmed weather change is still carried after several replacements", () => {
+    store().applyDelta({ environment: { weather: "storm" } });
+    vi.advanceTimersByTime(DEBOUNCE_MS);
+    const controls = ["bank-left", "climb", "faster"] as const;
+    for (const control of controls) {
+      applyFlightControl(control);
+      vi.advanceTimersByTime(MIN_SEND_GAP_MS);
+    }
+    expect(wired.sent).toHaveLength(4);
+    for (const entry of wired.sent) {
+      expect(entry.prompt).toMatch(/weather changes from clear skies/i);
+    }
+  });
+
   it("does not resend an identical prompt", () => {
     applyFlightControl("bank-left");
     vi.advanceTimersByTime(DEBOUNCE_MS);
