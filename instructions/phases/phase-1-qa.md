@@ -156,4 +156,40 @@ Browser pane, `http://localhost:3000/?dry=1`:
 
 Intermediate gate at 2:39 PM on `e12636b` plus backend-dev's uncommitted guide route: `pnpm typecheck` exit 0; `pnpm build` exit 0; `pnpm test` 337 tests, 336 passed, 1 failed (the same compiler test).
 
-Further sections are appended below as commits land.
+## 13. Final run for Phase 1 (2:41 PM, HEAD `6e4c128`, clean working tree)
+
+| Command | Result |
+| --- | --- |
+| `pnpm typecheck` | exit 0, no errors |
+| `pnpm build` | exit 0, 11 static pages; routes `/`, `/starter`, `/_not-found`, `/api/nano-banana`, `/api/orbis-prompt`, `/api/session-cleanup`, `/api/session-registry`, `/api/sim/command`, `/api/sim/guide`, `/api/token` |
+| `pnpm test` | 4 files, 337 tests: 336 passed, 1 failed (`tests/prompt-compiler.test.ts` > events > over-long event prompt, section 3) |
+| `GET /`, `GET /starter` | 200, no server-error markers |
+| `POST /api/token` | 200, JSON with a `jwt` field (not printed) |
+
+Commit range `0dc4cb6..6e4c128`, 29 commits: every subject matches the playbook format; no secret patterns in any diff; no `.env*`, key files or `.reactor-dev-sessions.json` in any commit; no commit edits a path outside its author's lane (apart from the Phase 0 note in section 8).
+
+`f30a038` (`/api/sim/guide`, Phase 2) was read for hygiene only and was not called.
+
+## 14. Open defects, most severe first
+
+1. **F-1**, frontend-dev, `hooks/use-steer-scheduler.ts:53-64,150-159`: two steers can leave about 0.4 s apart instead of one per chunk (section 11).
+2. **P0-2**, architect and Winston, running dev server: the dev wrapper predates `b65fe41`; a Ctrl+C with a Dynamic session still registered skips the shutdown cleanup (section 8). One dev-server restart before Gate 1 clears it.
+3. **P0-1**, architect, `app/api/token/route.ts:66-71` and `lib/orbis.ts:108`: an upstream Reactor 401 is shown as a demo-code prompt (section 8).
+4. **F-2**, frontend-dev, `components/stratofalcon-app.tsx:20-24`: dry-run flag can be `false` on a development remount (section 11).
+5. **B-1**, backend-dev, `lib/sim/prompt-compiler.ts:70-74`: a 40-or-more-word event prompt yields a 40-word steer, not under 40 (section 3). This is the one failing test.
+
+## 15. Not verified before Gate 1
+
+Nothing past the Reactor boundary has been exercised by any agent:
+
+- Connecting with the minted token, on either model; the 900 s cap in practice.
+- Uploading a 2.4 MB PNG seed, `set_image`, `image_accepted`, `state.has_image`, `conditions_ready`, `start`.
+- Time from card click to first picture, and the overlay lift on the first `chunk_complete` with frames (or the 15 s fallback).
+- Whether any compiled sentence actually banks, climbs or changes speed in the stream, and how long that takes.
+- What the stream does once a second steer replaces the first: every `set_prompt` replaces the previous prompt, so after "bank left" then "climb" the model's only prompt is the climb sentence while the HUD still shows a latched left bank.
+- `chunk_complete` cadence, `active_prompt` matching the sent text, and the Pending to Applied markers.
+- `set_audio_prompt` and audio playback; the mute button.
+- End flight on a live session, a dropped session, and `generation_complete` at the Dynamic run limit (about 7 minutes).
+- The `DEMO_ACCESS_CODE` gate (not set locally) and the session registry with a Dynamic session.
+- Real key presses by a person (browser automation key events were used), the CSS roll over moving video, and legibility on the projector.
+- Photo upload flown against Orbis.
