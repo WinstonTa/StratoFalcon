@@ -30,11 +30,21 @@ export function MissionLog() {
   const pending = prompts.filter((entry) => entry.status === "pending").length;
   const entries = [...missionLog].reverse();
 
+  // The structured state the prompts are compiled from, for the active mode.
   const readout: [label: string, value: string][] = [
-    ["Bank", state.flight.bank],
-    ["Pitch", state.flight.pitch],
-    ["Speed", state.flight.speed],
-    ["Altitude", state.flight.altitude],
+    ...(state.mode === "tour"
+      ? ([
+          ["Mode", "tour"],
+          ["Move", state.tour.move],
+          ["Turn", state.tour.turn],
+          ["Gaze", state.tour.gaze],
+        ] as [string, string][])
+      : ([
+          ["Bank", state.flight.bank],
+          ["Pitch", state.flight.pitch],
+          ["Speed", state.flight.speed],
+          ["Altitude", state.flight.altitude],
+        ] as [string, string][])),
     ["Time", state.environment.timeOfDay],
     ["Weather", state.environment.weather],
   ];
