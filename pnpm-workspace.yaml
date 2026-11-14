@@ -1,0 +1,10 @@
+# Single-package project. `packages` is listed so older pnpm versions accept
+# this file; the build-script decisions below are what it is here for.
+packages:
+  - '.'
+
+# Install scripts we decline to run. The app is verified to work without them,
+# and recording the decision keeps a clean `pnpm install` from failing.
+allowBuilds:
+  '@google/genai': false
+  protobufjs: false
