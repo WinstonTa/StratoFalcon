@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isOrbisModel } from "@/lib/orbis";
 import {
   registerReactorSession,
   unregisterReactorSession,
@@ -8,7 +9,6 @@ import {
 export const runtime = "nodejs";
 
 const REACTOR_API_URL = "https://api.reactor.inc";
-const MODEL_NAME = "reactor/visko-orbis-stable";
 
 type RegistryRequest = {
   sessionId?: unknown;
@@ -78,19 +78,19 @@ export async function POST(request: Request) {
   const sessionModel =
     typeof session.model === "string" ? session.model : session.model?.name;
   if (
-    sessionModel !== MODEL_NAME ||
+    !isOrbisModel(sessionModel) ||
     session.closed === true ||
     session.state?.toUpperCase() === "CLOSED"
   ) {
     return NextResponse.json(
-      { error: "Session is not an active Orbis Stable session" },
+      { error: "Session is not an active Orbis session" },
       { status: 400 },
     );
   }
 
   await registerReactorSession({
     sessionId,
-    model: MODEL_NAME,
+    model: sessionModel,
     registeredAt: new Date().toISOString(),
   });
   return new Response(null, { status: 204 });

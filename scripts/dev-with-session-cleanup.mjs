@@ -10,7 +10,11 @@ const require = createRequire(import.meta.url);
 const projectDirectory = process.cwd();
 const registryPath = path.join(projectDirectory, ".reactor-dev-sessions.json");
 const reactorApiUrl = "https://api.reactor.inc";
-const orbisModel = "reactor/visko-orbis-stable";
+// Keep in sync with ORBIS_MODELS in lib/orbis.ts.
+const orbisModels = [
+  "reactor/visko-orbis-dynamic",
+  "reactor/visko-orbis-stable",
+];
 
 loadEnvConfig(projectDirectory);
 
@@ -45,7 +49,7 @@ async function readRegistry() {
         (session) =>
           session &&
           typeof session.sessionId === "string" &&
-          session.model === orbisModel &&
+          orbisModels.includes(session.model) &&
           typeof session.registeredAt === "string",
       )
     ) {

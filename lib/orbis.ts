@@ -1,4 +1,26 @@
-export const ORBIS_MODEL_NAME = "reactor/visko-orbis-stable";
+export const ORBIS_MODELS = [
+  "reactor/visko-orbis-dynamic",
+  "reactor/visko-orbis-stable",
+] as const;
+
+export type OrbisModelName = (typeof ORBIS_MODELS)[number];
+
+export const DEFAULT_ORBIS_MODEL: OrbisModelName = "reactor/visko-orbis-dynamic";
+
+export function isOrbisModel(value: unknown): value is OrbisModelName {
+  return (
+    typeof value === "string" &&
+    (ORBIS_MODELS as readonly string[]).includes(value)
+  );
+}
+
+// NEXT_PUBLIC_ORBIS_MODEL is inlined at build time, so changing it needs a
+// dev-server restart. The token route authorizes both models either way.
+const configuredModel = process.env.NEXT_PUBLIC_ORBIS_MODEL;
+
+export const ORBIS_MODEL_NAME: OrbisModelName = isOrbisModel(configuredModel)
+  ? configuredModel
+  : DEFAULT_ORBIS_MODEL;
 
 export const ORBIS_TRACKS = [
   { name: "main_video", kind: "video", direction: "recvonly" },
@@ -15,9 +37,28 @@ export type OrbisMessage = {
   width?: number;
   height?: number;
   has_image?: boolean;
+  has_prompt?: boolean;
   image_conditioned?: boolean;
   started?: boolean;
+  running?: boolean;
   paused?: boolean;
+  // chunk_complete
+  chunk_index?: number;
+  frames_emitted?: number;
+  /** Dynamic only: the prompt that drove this chunk. */
+  active_prompt?: string | null;
+  // generation_started
+  max_chunks?: number;
+  frames_per_chunk?: number;
+  fps?: number;
+  // generation_complete
+  total_chunks?: number;
+  // prompt_accepted
+  prompt?: string;
+  // state
+  current_chunk?: number;
+  /** Dynamic only: the prompt currently driving generation. */
+  current_prompt?: string | null;
 };
 
 export function unwrapOrbisMessage(raw: unknown): OrbisMessage {
@@ -28,9 +69,51 @@ export function unwrapOrbisMessage(raw: unknown): OrbisMessage {
   return raw as OrbisMessage;
 }
 
+const DEMO_CODE_STORAGE_KEY = "stratofalcon-demo-code";
+
+function readStoredDemoCode() {
+  try {
+    return window.localStorage.getItem(DEMO_CODE_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function storeDemoCode(code: string) {
+  try {
+    window.localStorage.setItem(DEMO_CODE_STORAGE_KEY, code);
+  } catch {
+    // Private windows may block storage; the code still works for this request.
+  }
+}
+
+async function postTokenRequest(demoCode: string) {
+  const response = await fetch("/api/token", {
+    method: "POST",
+    headers: demoCode ? { "x-demo-code": demoCode } : undefined,
+  });
+  const result = (await response.json().catch(() => ({}))) as {
+    jwt?: string;
+    error?: string;
+  };
+  return { response, result };
+}
+
+/**
+ * Requests a session-scoped Reactor JWT. When the deployment sets
+ * DEMO_ACCESS_CODE, the route answers 401 and the visitor is asked for the
+ * code once; it is then remembered in this browser.
+ */
 export async function requestReactorJwt() {
-  const response = await fetch("/api/token", { method: "POST" });
-  const result = (await response.json()) as { jwt?: string; error?: string };
+  let { response, result } = await postTokenRequest(readStoredDemoCode());
+
+  if (response.status === 401) {
+    const entered = window.prompt("Enter the demo access code")?.trim() ?? "";
+    if (!entered) throw new Error("A demo access code is required.");
+    ({ response, result } = await postTokenRequest(entered));
+    if (response.ok) storeDemoCode(entered);
+  }
+
   if (!response.ok || !result.jwt) {
     throw new Error(result.error || "Could not create a Reactor token");
   }
