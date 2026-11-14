@@ -64,9 +64,11 @@ export async function POST(request: Request) {
 
   const text = await response.text();
   if (!response.ok) {
+    // Always 502: only this route's own access-code gate may answer 401, or
+    // the client would ask for a demo code when the Reactor key is at fault.
     return NextResponse.json(
       { error: `Reactor token request failed (${response.status}): ${text}` },
-      { status: response.status },
+      { status: 502 },
     );
   }
 
