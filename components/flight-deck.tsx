@@ -10,6 +10,7 @@ import {
   useVideoFeedbackStyle,
 } from "@/components/flight-hud";
 import { MissionLog } from "@/components/mission-log";
+import { SituationPanel } from "@/components/situation-panel";
 import {
   useAltitudeBands,
   useFlightControls,
@@ -397,7 +398,10 @@ function FlightSession({
               )}
             </div>
           </div>
-          <FlightKeys disabled={!flying} />
+          <div className="dock">
+            <FlightKeys disabled={!flying} />
+            <SituationPanel disabled={!flying} />
+          </div>
         </section>
         <MissionLog />
       </div>

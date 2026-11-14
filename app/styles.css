@@ -1505,3 +1505,92 @@ main.starter {
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------------------------------------------
+   Control dock under the viewport: keys, situations, command bar
+   ------------------------------------------------------------------ */
+
+.dock {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.dock .keys {
+  border-top: 0;
+}
+
+.situations {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 26px;
+  padding: 2px 12px 10px;
+}
+
+.situation-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.situation-title {
+  margin-right: 4px;
+  color: var(--faint);
+  font-family: var(--font-mono-stack);
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.chip {
+  padding: 4px 13px;
+  color: var(--dim);
+  font-family: var(--font-display-stack);
+  font-size: clamp(0.95rem, 1.1vw, 1.2rem);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--dim);
+}
+
+.chip.is-on {
+  color: var(--ink);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.chip-event {
+  border-style: dashed;
+}
+
+.chip-event.is-on {
+  background: var(--amber);
+  border-color: var(--amber);
+  border-style: solid;
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.chip:focus-visible,
+.key:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
