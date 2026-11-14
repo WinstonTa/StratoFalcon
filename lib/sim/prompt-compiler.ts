@@ -52,8 +52,11 @@ export const INITIAL_STATE: SimState = {
   event: null,
 };
 
-/** Hard ceiling for any single steer sentence. */
-export const MAX_STEER_WORDS = 40;
+/**
+ * Most words a single steer sentence may have. The rule is "under 40 words",
+ * so the ceiling is 39.
+ */
+export const MAX_STEER_WORDS = 39;
 
 // ---------------------------------------------------------------------------
 // Delta sanitizing and application
