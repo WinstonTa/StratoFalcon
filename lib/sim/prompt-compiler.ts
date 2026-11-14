@@ -461,3 +461,198 @@ export function compileKickoff(placeName: string, state: SimState): string {
     "Photorealistic, one continuous shot at eye level.",
   ].join(" ");
 }
+
+// ---------------------------------------------------------------------------
+// Whole-motion prompt (steering v2)
+//
+// Orbis facts this follows (Dynamic prompt guide): every set_prompt REPLACES
+// the active prompt; the model preserves whatever a prompt does not change;
+// restating the world can read as a scene rebuild; a change must be stated
+// explicitly ("The weather changes from sunny to rainy."); an ongoing action
+// is restated with "continues".
+//
+// So each prompt is ONE camera-motion sentence covering every control of the
+// current mode at once (a later key press no longer drops the earlier one),
+// plus explicit change sentences only for what just changed. Camera words
+// come from the documented vocabulary: POV, aerial, eye-level, push, pan,
+// tilt. No scene or place words, no weather in the motion sentence, no
+// adjectives of intent, no negation.
+//
+// The phrase tables below are the only place the wording lives.
+// ---------------------------------------------------------------------------
+
+const MOTION_FLIGHT_CAMERA = "The aerial POV camera continues its";
+
+/** Pace of the forward push. */
+const MOTION_SPEED: Record<FlightState["speed"], string> = {
+  slow: "slow push forward",
+  cruise: "steady push forward",
+  fast: "fast push forward",
+};
+
+/** Height, only where it reads as part of the camera move. `mid` adds nothing. */
+const MOTION_ALTITUDE: Record<FlightState["altitude"], string> = {
+  low: "low over the ground",
+  mid: "",
+  high: "high above the ground",
+};
+
+/** A turn is a slow pan with a level horizon. `level` is handled with pitch below. */
+const MOTION_BANK: Record<FlightState["bank"], string> = {
+  level: "heading straight",
+  left: "panning slowly left with the horizon level",
+  right: "panning slowly right with the horizon level",
+};
+
+/** `level` adds nothing on its own. */
+const MOTION_PITCH: Record<FlightState["pitch"], string> = {
+  level: "",
+  climb: "rising steadily as the ground drops away below",
+  descend: "descending steadily as the ground comes closer",
+};
+
+/** Used when both bank and pitch are neutral. */
+const MOTION_FLIGHT_NEUTRAL = "level and straight";
+
+const MOTION_MOVE: Record<TourState["move"], string> = {
+  walk: "The eye-level POV camera walks steadily forward",
+  stand: "The eye-level POV camera stands still",
+};
+
+/** `none` adds nothing on its own. */
+const MOTION_TURN: Record<TourState["turn"], string> = {
+  none: "",
+  left: "panning slowly left",
+  right: "panning slowly right",
+};
+
+/** `ahead` adds nothing on its own. */
+const MOTION_GAZE: Record<TourState["gaze"], string> = {
+  ahead: "",
+  up: "tilting slowly upward",
+};
+
+/** Used when both turn and gaze are neutral. */
+const MOTION_TOUR_NEUTRAL = "level and facing straight ahead";
+
+/** "The weather changes from <FROM> to <TO>." */
+const WEATHER_FROM: Record<Environment["weather"], string> = {
+  clear: "clear skies",
+  cloudy: "overcast",
+  rain: "rain",
+  storm: "a thunderstorm",
+  fog: "fog",
+  snow: "snowfall",
+};
+
+const WEATHER_TO: Record<Environment["weather"], string> = {
+  clear: "clear open skies",
+  cloudy: "a gray overcast sky",
+  rain: "steady rain with wet, shining surfaces",
+  storm: "a heavy thunderstorm with rain and lightning",
+  fog: "thick fog that fades the distance",
+  snow: "steady snowfall settling white on surfaces",
+};
+
+/** "The time of day changes from <FROM> to <TO>." */
+const TIME_FROM: Record<Environment["timeOfDay"], string> = {
+  dawn: "dawn",
+  day: "midday",
+  sunset: "sunset",
+  night: "night",
+};
+
+const TIME_TO: Record<Environment["timeOfDay"], string> = {
+  dawn: "dawn, with pale pink light low on the horizon",
+  day: "bright midday, with the sun high",
+  sunset: "sunset, with low golden light",
+  night: "night, with a dark sky and glowing lights",
+};
+
+function motionSentence(state: SimState): string {
+  if (state.mode === "flight") {
+    const { altitude, speed, bank, pitch } = state.flight;
+    const push = [MOTION_FLIGHT_CAMERA, MOTION_SPEED[speed], MOTION_ALTITUDE[altitude]]
+      .filter(Boolean)
+      .join(" ");
+    const attitude =
+      bank === "level" && pitch === "level"
+        ? [MOTION_FLIGHT_NEUTRAL]
+        : [MOTION_BANK[bank], MOTION_PITCH[pitch]].filter(Boolean);
+    return `${[push, ...attitude].join(", ")}.`;
+  }
+  const { move, turn, gaze } = state.tour;
+  const attitude =
+    turn === "none" && gaze === "ahead"
+      ? [MOTION_TOUR_NEUTRAL]
+      : [MOTION_TURN[turn], MOTION_GAZE[gaze]].filter(Boolean);
+  return `${[MOTION_MOVE[move], ...attitude].join(", ")}.`;
+}
+
+/**
+ * ONE prompt for the whole current motion, meant to be sent last-write-wins
+ * whenever state changes.
+ *
+ *  1. Always: one camera-motion sentence for `next.mode` that carries every
+ *     control at once (neutral included).
+ *  2. Only when `prev` is given: one explicit change sentence for each of
+ *     weather and time of day that differs between `prev` and `next`.
+ *     Unchanged weather and light are never restated.
+ *  3. The event sentence, only when `next.event` is non-null and differs
+ *     from `prev.event` (or `prev` is omitted).
+ *
+ * Deterministic: the same (next, prev) always gives the identical string.
+ */
+export function compileMotionPrompt(next: SimState, prev?: SimState): string {
+  const parts = [motionSentence(next)];
+
+  if (prev) {
+    if (prev.environment.weather !== next.environment.weather) {
+      parts.push(
+        `The weather changes from ${WEATHER_FROM[prev.environment.weather]} to ${WEATHER_TO[next.environment.weather]}.`,
+      );
+    }
+    if (prev.environment.timeOfDay !== next.environment.timeOfDay) {
+      parts.push(
+        `The time of day changes from ${TIME_FROM[prev.environment.timeOfDay]} to ${TIME_TO[next.environment.timeOfDay]}.`,
+      );
+    }
+  }
+
+  if (next.event && !(prev && sameEvent(prev.event, next.event))) {
+    const eventPrompt = limitWords(next.event.prompt, MAX_STEER_WORDS);
+    if (eventPrompt) {
+      parts.push(/[.!?]$/.test(eventPrompt) ? eventPrompt : `${eventPrompt}.`);
+    }
+  }
+
+  return parts.join(" ");
+}
+
+const LABEL_BANK: Record<FlightState["bank"], string> = {
+  level: "Straight",
+  left: "Turning left",
+  right: "Turning right",
+};
+
+const LABEL_PITCH: Record<FlightState["pitch"], string> = {
+  level: "level",
+  climb: "climbing",
+  descend: "descending",
+};
+
+/** Short HUD label for the current motion, e.g. "Turning left · climbing · fast · low". */
+export function describeMotion(state: SimState): string {
+  if (state.mode === "flight") {
+    const { bank, pitch, speed, altitude } = state.flight;
+    return [LABEL_BANK[bank], LABEL_PITCH[pitch], speed, altitude].join(" · ");
+  }
+  const { move, turn, gaze } = state.tour;
+  return [
+    move === "walk" ? "Walking" : "Standing",
+    turn === "none" ? "" : `turning ${turn}`,
+    gaze === "up" ? "looking up" : "looking ahead",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
