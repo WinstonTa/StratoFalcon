@@ -682,6 +682,289 @@ input {
   }
 }
 
+/* ------------------------------------------------------------------
+   HUD and instant feedback. Sizes use container units of the viewport
+   so the HUD scales with the video on any screen.
+   ------------------------------------------------------------------ */
+
+.viewport {
+  container-type: size;
+}
+
+/* The video itself rolls, shifts and pushes in with the controls. */
+.video-layer {
+  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  color: var(--hud);
+  font-family: var(--font-mono-stack);
+  text-shadow: 0 0 6px #000, 0 1px 2px #000;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.hud-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    #05070a59 0,
+    transparent 16%,
+    transparent 66%,
+    #05070ad9 100%
+  );
+}
+
+.hud-horizon {
+  position: absolute;
+  top: 50%;
+  left: 20cqw;
+  width: 60cqw;
+  height: 0;
+  opacity: 0.85;
+  transition: transform 650ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.hud-horizon-line,
+.hud-rung {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    currentColor 0 36%,
+    transparent 36% 64%,
+    currentColor 64% 100%
+  );
+  box-shadow: 0 0 5px #000;
+}
+
+.hud-rung {
+  left: 30%;
+  width: 40%;
+  opacity: 0.6;
+}
+
+.hud-rung-up {
+  top: -14cqh;
+}
+
+.hud-rung-down {
+  top: 14cqh;
+}
+
+.hud-waterline {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 1.2cqw;
+  color: var(--text);
+  transform: translate(-50%, -50%);
+}
+
+.hud-waterline span {
+  width: 4.5cqw;
+  height: 3px;
+  background: currentColor;
+  box-shadow: 0 0 5px #000;
+}
+
+.hud-waterline i {
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 5px #000;
+}
+
+.hud-tape {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4cqh;
+  min-width: 15cqw;
+  padding: 1.4cqh 1.4cqw;
+  background: #05070a8c;
+  transform: translateY(-50%);
+}
+
+.hud-tape-left {
+  left: 2.2cqw;
+  border-left: 3px solid currentColor;
+}
+
+.hud-tape-right {
+  right: 2.2cqw;
+  text-align: right;
+  border-right: 3px solid currentColor;
+}
+
+.hud-label,
+.hud-unit {
+  color: var(--text);
+  font-size: clamp(11px, 1.9cqh, 20px);
+  letter-spacing: 0.16em;
+}
+
+.hud-unit {
+  color: var(--hud);
+}
+
+.hud-value {
+  font-family: var(--font-display-stack);
+  font-size: clamp(30px, 8cqh, 92px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
+.hud-trend::after {
+  display: inline-block;
+  width: 1.1em;
+  font-size: 0.42em;
+  text-align: right;
+  vertical-align: middle;
+  content: "";
+}
+
+.hud-trend-climb::after {
+  content: "▲";
+}
+
+.hud-trend-descend::after {
+  content: "▼";
+}
+
+.hud-foot {
+  position: absolute;
+  right: 2.2cqw;
+  bottom: 2.4cqh;
+  left: 2.2cqw;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 2cqw;
+}
+
+.hud-attitude {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-display-stack);
+  font-size: clamp(18px, 4.2cqh, 46px);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: 0.04em;
+}
+
+.hud-env {
+  display: flex;
+  gap: 0.8cqw;
+}
+
+.hud-env span {
+  padding: 0.5cqh 1cqw;
+  color: var(--text);
+  font-size: clamp(11px, 2.1cqh, 22px);
+  letter-spacing: 0.14em;
+  background: #05070a99;
+  border: 1px solid #eef3f166;
+}
+
+.hud-env .hud-env-event {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.hud-sync {
+  justify-self: end;
+  font-size: clamp(11px, 2.1cqh, 22px);
+  letter-spacing: 0.14em;
+}
+
+.hud-sync.is-steering {
+  color: var(--magenta);
+  animation: blink 700ms steps(2, start) infinite;
+}
+
+/* Key legend under the viewport. A keycap lights while its control is latched. */
+.keys {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 8px;
+  color: var(--dim);
+  font-family: var(--font-display-stack);
+  font-size: clamp(1rem, 1.25vw, 1.35rem);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.key kbd {
+  min-width: 2.1em;
+  padding: 3px 9px;
+  color: var(--text);
+  font-family: var(--font-mono-stack);
+  font-size: 0.9em;
+  font-weight: 600;
+  text-align: center;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 3px;
+  border-radius: 4px;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.key:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.key.is-on {
+  color: var(--hud);
+  border-color: var(--hud);
+}
+
+.key.is-on kbd {
+  color: var(--ink);
+  background: var(--hud);
+  border-color: var(--hud);
+}
+
+.key:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 /* @@FLIGHT-DECK-STYLES@@ */
 
 /* ------------------------------------------------------------------

@@ -4,6 +4,15 @@ import { ReactorProvider, ReactorView } from "@reactor-team/js-sdk";
 import { useEffect, useRef, useState } from "react";
 
 import { destinationCode } from "@/components/destination-gallery";
+import {
+  FlightHud,
+  FlightKeys,
+  useVideoFeedbackStyle,
+} from "@/components/flight-hud";
+import {
+  useAltitudeBands,
+  useFlightControls,
+} from "@/hooks/use-flight-controls";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { ORBIS_MODEL_NAME, ORBIS_TRACKS } from "@/lib/orbis";
@@ -89,6 +98,12 @@ function FlightSession({
   const endingRef = useRef(false);
 
   const { connected, status, hasFrames, runComplete } = session;
+  const flying = phase === "flying";
+
+  // Keys and gauges are local: they respond on the same frame as the press.
+  useFlightControls(flying);
+  useAltitudeBands(flying);
+  const feedbackStyle = useVideoFeedbackStyle();
 
   // 1. Connect once when the deck opens.
   useEffect(() => {
@@ -198,7 +213,6 @@ function FlightSession({
   };
 
   const errorText = launchError || session.error;
-  const flying = phase === "flying";
   const showVideo = !dryRun && connected && session.runStarted;
   const launchStep = !connected
     ? 0
@@ -250,7 +264,7 @@ function FlightSession({
         <section className="stage">
           <div className="viewport-wrap">
             <div className="viewport">
-              <div className="video-layer">
+              <div className="video-layer" style={feedbackStyle}>
                 {dryRun && (
                   <img
                     className="video-still"
@@ -268,6 +282,8 @@ function FlightSession({
                   />
                 )}
               </div>
+
+              {flying && <FlightHud />}
 
               {!flying && (
                 <div
@@ -362,6 +378,7 @@ function FlightSession({
               )}
             </div>
           </div>
+          <FlightKeys disabled={!flying} />
         </section>
       </div>
     </main>
