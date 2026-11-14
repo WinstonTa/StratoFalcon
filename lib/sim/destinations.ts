@@ -65,9 +65,9 @@ export const DESTINATIONS: Destination[] = [
     aerialImage: image("los-angeles", "aerial"),
     groundImage: image("los-angeles", "ground"),
     aerialKickoff:
-      "A first-person aerial view from a small aircraft flying forward over Los Angeles on a clear day. The cluster of downtown skyscrapers stands ahead with the San Gabriel Mountains behind it, and a wide freeway full of cars crosses a vast grid of low houses and palm trees below. The camera glides smoothly forward toward the skyline as the city flows beneath, photorealistic, in one continuous shot.",
+      "A first-person aerial view from a small aircraft flying forward over Los Angeles on a clear day. The cluster of downtown skyscrapers stands ahead with the San Gabriel Mountains behind it, and a wide freeway curves along the left past a vast grid of low buildings, parking lots and rows of palm trees below. The camera glides smoothly forward toward the skyline as the city flows beneath, photorealistic, in one continuous shot.",
     groundKickoff:
-      "A first-person walking view at eye level on a wide boulevard in Los Angeles in warm sunlight. Rows of very tall thin palm trees line both sides above low stucco shops and parked cars, and the downtown towers stand at the end of the street. Palm fronds sway and a few people walk the sidewalks as the viewer stands looking ahead, photorealistic, in one continuous shot.",
+      "A first-person walking view at eye level on a wide boulevard in Los Angeles in bright sunlight. Rows of very tall thin palm trees line both sides above low stucco shops with colored awnings and parked cars, and the downtown towers stand at the end of the street. Palm fronds sway and a few people walk the sidewalks as the viewer stands looking ahead, photorealistic, in one continuous shot.",
     audioPrompt:
       "Warm city ambience: a light breeze through palm fronds, steady distant freeway traffic and an occasional car passing.",
     guideFacts: [
@@ -107,7 +107,7 @@ export const DESTINATIONS: Destination[] = [
     aerialKickoff:
       "A first-person aerial view from a small aircraft flying forward low over the Charles River in Boston on a clear day. White sailboats dot the blue water, a stone arch bridge crosses ahead, and the Back Bay skyline with its tall blue glass tower rises beyond red brick rowhouses on the bank. The camera glides smoothly forward toward the skyline as the river flows beneath, photorealistic, in one continuous shot.",
     groundKickoff:
-      "A first-person walking view at eye level on a narrow cobblestone lane in Boston's Beacon Hill in soft daylight. Red brick rowhouses with black shutters, flower-filled window boxes and black iron gas lamps line both sides under leafy green trees. Leaves rustle and dappled sunlight shifts across the stones as the viewer stands looking ahead, photorealistic, in one continuous shot.",
+      "A first-person walking view at eye level on a narrow cobblestone lane in Boston's Beacon Hill in soft daylight. Red brick rowhouses with black shutters, flower-filled window boxes and black iron gas lamps line both sides under leafy green trees, with a few cars parked along the right curb. Leaves rustle and dappled sunlight shifts across the stones as the viewer stands looking ahead, photorealistic, in one continuous shot.",
     audioPrompt:
       "Quiet neighborhood ambience: leaves rustling in a light breeze, birdsong, distant traffic and faint water lapping.",
     guideFacts: [
@@ -125,9 +125,9 @@ export const DESTINATIONS: Destination[] = [
     aerialImage: image("venice-beach", "aerial"),
     groundImage: image("venice-beach", "ground"),
     aerialKickoff:
-      "A first-person aerial view from a small aircraft flying forward along the coastline of Venice Beach, California, on a clear day. A wide band of pale sand runs ahead between white Pacific surf on the left and a palm-lined boardwalk with colorful buildings on the right, with a pier and hazy mountains in the distance. The camera glides smoothly forward along the beach as waves roll in below, photorealistic, in one continuous shot.",
+      "A first-person aerial view from a small aircraft flying forward along the coastline of Venice Beach, California, on a clear day. A wide band of pale sand runs ahead between white Pacific surf on the left and a palm-lined beachfront of colorful low buildings on the right, with a pier reaching into the water and hazy mountains in the distance. The camera glides smoothly forward along the beach as waves roll in below, photorealistic, in one continuous shot.",
     groundKickoff:
-      "A first-person walking view at eye level on the Venice Beach boardwalk in California in warm sunlight. Brightly painted shopfronts and tall palm trees line the left side, open sand and the Pacific Ocean stretch to the right, and skaters, cyclists and walkers move along the wide paved path. Palm fronds sway in the sea breeze as the viewer stands looking ahead, photorealistic, in one continuous shot.",
+      "A first-person walking view at eye level on the Venice Beach boardwalk in California in bright sunlight. Shopfronts with colorful awnings and tall palm trees line the left side, open sand and the Pacific Ocean stretch to the right, and cyclists and walkers move along the wide paved path. Palm fronds sway in the sea breeze as the viewer stands looking ahead, photorealistic, in one continuous shot.",
     audioPrompt:
       "Beach ambience: rolling ocean waves, a steady sea breeze, seagulls, skateboard wheels on pavement and distant laughter.",
     guideFacts: [
