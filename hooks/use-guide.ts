@@ -16,6 +16,24 @@ const MIN_GAP_MS = 8000;
 /** How long a caption stays on screen. */
 const CAPTION_MS = 11_000;
 
+// While the microphone is open the guide stays silent, so voice commands do
+// not pick up its speech.
+let micOpen = false;
+
+/** Called by the voice button when listening starts and stops. */
+export function setGuideMicOpen(open: boolean) {
+  micOpen = open;
+  if (open) cancelGuideSpeech();
+}
+
+function isSpeaking() {
+  return (
+    typeof window !== "undefined" &&
+    "speechSynthesis" in window &&
+    (window.speechSynthesis.speaking || window.speechSynthesis.pending)
+  );
+}
+
 export function cancelGuideSpeech() {
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.cancel();
@@ -24,7 +42,8 @@ export function cancelGuideSpeech() {
 
 function speak(line: string) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-  window.speechSynthesis.cancel();
+  // Never cut off a line in progress, and never talk into an open microphone.
+  if (micOpen || isSpeaking()) return;
   const utterance = new SpeechSynthesisUtterance(line);
   utterance.rate = 1.02;
   window.speechSynthesis.speak(utterance);
@@ -45,6 +64,9 @@ export function useGuide({
   const [caption, setCaption] = useState("");
   const inFlight = useRef(false);
   const lastLineAt = useRef(0);
+  // When a request was last started, so a failing route is retried at the
+  // normal cadence instead of every check.
+  const lastAttemptAt = useRef(0);
   const lastError = useRef("");
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -53,9 +75,16 @@ export function useGuide({
 
   const requestLine = useCallback(async () => {
     if (inFlight.current || !enabledRef.current) return;
+    // Every trigger (first line, 20 s tick, after a change) obeys the same
+    // rules: a minimum gap since the last line, and no new line while the
+    // previous one is still being spoken or the microphone is open.
+    if (Date.now() - lastLineAt.current < MIN_GAP_MS) return;
+    if (micOpen || isSpeaking()) return;
     const store = useSimStore.getState();
     const destination = store.destination;
     if (!destination) return;
+    const requestedMode = store.state.mode;
+    lastAttemptAt.current = Date.now();
 
     inFlight.current = true;
     try {
@@ -70,6 +99,8 @@ export function useGuide({
       // Drop a line that arrives after the view has gone away.
       if (!text || !enabledRef.current) return;
       if (now.destination?.id !== destination.id) return;
+      // A line written for the air is wrong on the ground, and the reverse.
+      if (now.state.mode !== requestedMode) return;
 
       now.addGuideLine(text);
       now.log("guide", text);
@@ -92,8 +123,22 @@ export function useGuide({
   useEffect(() => {
     if (!enabled) return;
 
+    // A new view (first frames, after landing, after takeoff) gets a line
+    // promptly; the previous view's speech was cancelled on the way out.
+    lastLineAt.current = 0;
+    lastAttemptAt.current = 0;
     const first = setTimeout(() => void requestLine(), FIRST_LINE_MS);
-    const interval = setInterval(() => void requestLine(), INTERVAL_MS);
+    // Checked every few seconds so a tick skipped for the gap or for speech in
+    // progress is picked up soon after, not a whole interval later.
+    const interval = setInterval(() => {
+      const now = Date.now();
+      if (
+        now - lastLineAt.current >= INTERVAL_MS &&
+        now - lastAttemptAt.current >= INTERVAL_MS
+      ) {
+        void requestLine();
+      }
+    }, 2500);
 
     let afterChange: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = useSimStore.subscribe((next, previous) => {
@@ -106,9 +151,7 @@ export function useGuide({
         (b.event !== null && b.event.id !== a.event?.id);
       if (!significant) return;
       if (afterChange) clearTimeout(afterChange);
-      afterChange = setTimeout(() => {
-        if (Date.now() - lastLineAt.current >= MIN_GAP_MS) void requestLine();
-      }, AFTER_CHANGE_MS);
+      afterChange = setTimeout(() => void requestLine(), AFTER_CHANGE_MS);
     });
 
     return () => {

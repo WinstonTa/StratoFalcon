@@ -3,6 +3,7 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { useCopilot, useVoiceCommand } from "@/hooks/use-copilot";
+import { setGuideMicOpen } from "@/hooks/use-guide";
 
 /**
  * The co-pilot: a text box and a push-to-talk microphone. Both go through
@@ -20,6 +21,12 @@ export function CommandBar({ disabled }: { disabled: boolean }) {
   );
   const voice = useVoiceCommand(sendVoice);
   const { start: startVoice, stop: stopVoice } = voice;
+
+  // The guide stops talking the moment the microphone opens.
+  useEffect(() => {
+    setGuideMicOpen(voice.listening);
+    return () => setGuideMicOpen(false);
+  }, [voice.listening]);
 
   // Hold V to talk, as an alternative to holding the mic button.
   useEffect(() => {
