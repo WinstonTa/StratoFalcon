@@ -1,121 +1,114 @@
-# Orbis hackathon starter!
+# StratoFalcon
 
-A minimal Next.js example for the public Reactor-hosted Visko Orbis Stable API.
-It demonstrates server-side token minting, WebRTC video and audio, text-to-video,
-optional image-to-video, live prompt steering, delivery resolution, pause,
-resume, and a foldable Nano Banana-to-Orbis livestreaming example.
+A live flight and tourist simulator. Pick a real place or upload your own photo, fly over it in continuously generated live video, steer it and change the situation in real time, then land and explore on foot with an AI guide.
 
-## Requirements
+Built at Build Day with Live Models (Visko × Google Cloud × Reactor) on:
 
-- Node.js 20.9 or newer
-- A Reactor API key with access to Visko Orbis Stable
-- A Google Gemini API key with access to Nano Banana
+- **Visko Orbis**, a real-time video world model, hosted by **Reactor** and streamed over WebRTC
+- **Google Gemini** for command understanding, guide narration, photo recognition and seed images
+- **Next.js** and React
+
+> **Status:** built in one day. See [instructions/phases/](instructions/phases/) for what has and has not been verified against a live Orbis session.
+
+## How it works
+
+Orbis is steered by text prompts only, and a new prompt lands at the next chunk boundary, about every 1.8 seconds. StratoFalcon is built around that:
+
+1. **State over strings.** The browser holds one structured simulation state (bank, pitch, speed, altitude, weather, time of day, one-shot events). A pure function compiles state changes into single-action prompts.
+2. **Deterministic fast path.** Keyboard and situation buttons never wait on a language model. Gemini is only in the loop for typed and spoken commands, guide narration and photo preparation.
+3. **Instant local feedback.** The HUD and a small roll on the video react on the same frame as the key press, while the stream follows a moment later.
+4. **One steer per chunk.** A scheduler sends at most one compiled prompt per chunk boundary and shows each one in the mission log as pending, then applied.
+5. **Landing is a restart.** Orbis only takes a start image before a run begins, so landing resets the stream and restarts it from a street-level image of the same place.
+
+```text
+ keys / situation buttons ─► state change (instant)
+ text / voice ─► /api/sim/command (Gemini → JSON state change) ─┐
+                                                                ▼
+                                          simulation state (browser)
+                              ┌─────────────────────────────────┤
+                              ▼                                 ▼
+                    HUD, horizon, mission log          steer scheduler ─► Orbis
+```
 
 ## Run locally
 
+Requires Node.js 20.9 or newer, pnpm, a Reactor API key with access to Visko Orbis, and a Gemini API key.
+
 ```bash
 cp .env.example .env.local
-# Add your Reactor API key to .env.local.
-npm install
-npm run dev
 ```
 
-Open <http://localhost:3000>.
+Add your keys to `.env.local`, then:
 
-`npm run dev` starts Next.js through a small session-cleanup wrapper. While in
-development, sessions created by this starter are recorded in the gitignored
-`.reactor-dev-sessions.json` file. It contains session IDs and metadata, but no
-API keys or JWTs. The wrapper uses the server-only `REACTOR_API_KEY` to delete
-recorded sessions before startup and again on `Ctrl+C`/`SIGTERM`, so restarting
-the dev server cannot silently leave a previous Orbis session consuming
-capacity. If a startup sweep cannot delete a recorded session, the wrapper
-refuses to start another dev server and reports the session ID.
-
-Set both keys in `.env.local`:
-
-```dotenv
-REACTOR_API_KEY=your_reactor_api_key
-GEMINI_API_KEY=your_gemini_api_key
+```bash
+pnpm install
 ```
 
-Keep both keys server-side. The browser receives only the short-lived Reactor
-JWT and the image returned by the Nano Banana route.
+```bash
+pnpm dev
+```
 
-## Nano Banana kickoff example
+Open <http://localhost:3000> in **Chrome** (voice commands use Chrome's speech recognition).
 
-Connect to Orbis, expand **Livestreaming example**, and click
-**Edit and start stream**. The bundled `dog.png` is displayed as the source
-image. The server sends it with the displayed image-editing prompt to
-`gemini-2.5-flash-image`. Gemini then analyzes the edited image with the user
-prompt and returns a plain-text, image-grounded prompt. The
-edited output is previewed, uploaded as the Orbis start image, and used with
-that grounded prompt to begin the stream.
+| Variable | Purpose |
+| --- | --- |
+| `REACTOR_API_KEY` | Server only. Mints short-lived session tokens |
+| `GEMINI_API_KEY` | Server only |
+| `NEXT_PUBLIC_ORBIS_MODEL` | Optional. `reactor/visko-orbis-dynamic` (default) or `reactor/visko-orbis-stable`. Restart the dev server after changing it |
+| `DEMO_ACCESS_CODE` | Optional locally, required on a public deployment. When set, `/api/token` refuses requests without it |
 
-The two starting prompts are exported from `lib/nano-banana.ts`.
-`NANO_BANANA_PROMPT` controls the image edit, while `ORBIS_KICKOFF_PROMPT`
-describes the requested motion. The final Gemini-grounded prompt is displayed
-before it is sent to Orbis.
+A live session is billed per second by Reactor while it is connected. End the flight when you are not using it.
 
-## API flow
+`pnpm dev` wraps Next.js with a session-cleanup script: sessions opened in development are recorded in the gitignored `.reactor-dev-sessions.json` and deleted on startup and shutdown.
 
-1. `POST /api/token` requests a scoped session JWT from
-   `https://api.reactor.inc/tokens`.
-2. `ReactorProvider` connects to `reactor/visko-orbis-stable` with the
-   recv-only `main_video` and `main_audio` tracks.
-3. The model sends a `state` snapshot. Its `state.available_resolutions` list
-   replaces the starter's initial documented resolution choices.
-4. If supplied, the reference image is uploaded and passed to `set_image`
-   before `start`.
-5. If selected, `set_resolution` stages a delivery tier for the next `start`.
-   Omitting it keeps the model's current setting; the documented default is
-   `2k`.
-6. `set_prompt` supplies the required prompt, then `start` begins generation.
-7. Sending another `set_prompt` while running steers the video at the next
-   chunk boundary.
+### Try it without spending credits
 
-## Documented model behavior
+Open <http://localhost:3000/?dry=1>. The flight deck, controls, HUD, scheduler and mission log all run, but nothing connects to Reactor: prompts are logged instead of sent.
 
-- A prompt is required before `start`; the reference image is optional.
-- A 16:9 reference image works best. Other aspect ratios are resized without
-  cropping and may appear distorted.
-- The starter initially shows the currently documented `1080p`, `2k`, and `4k`
-  tiers. After connection, treat `state.available_resolutions` as authoritative
-  and send the selected value exactly as given.
-- `set_resolution` applies from the next `start`, not during the active run.
-- Orbis emits chunks about every 1.8 seconds. The first chunk emits no frames
-  while the upscaler primes; this is expected.
-- Commands are asynchronous. Use model events such as `state`,
-  `prompt_accepted`, `resolution_accepted`, `generation_started`,
-  `chunk_complete`, and `command_error` as the source of truth.
-- `pause` takes effect after the current chunk. `resume` continues the same
-  generation, and `reset` clears the current prompt and image.
+## Controls
 
-## Project files
+| Flight | | Tour | |
+| --- | --- | --- | --- |
+| `W` / `S` | Climb / descend | `W` / `S` | Walk / stop |
+| `A` / `D` | Bank left / right | `A` / `D` | Turn left / right |
+| `Space` | Level out | `Q` | Look up |
+| `R` / `F` | Faster / slower | `T` | Take off |
+| `L` | Land | | |
 
-- `app/api/token/route.ts` performs the server-side token exchange.
-- `app/api/session-cleanup/route.ts` performs best-effort session deletion when
-  the browser page exits.
-- `app/api/session-registry/route.ts` records verified development sessions for
-  startup and shutdown cleanup.
-- `scripts/dev-with-session-cleanup.mjs` wraps `next dev` with the development
-  cleanup sweeps.
-- `app/api/nano-banana/route.ts` performs the server-side image edit.
-- `app/api/orbis-prompt/route.ts` creates the image-grounded video prompt.
-- `components/orbis-demo.tsx` composes the provider, player, controls, and demo.
-- `components/orbis-player.tsx` renders the streamed video and audio.
-- `components/orbis-controls.tsx` renders the session controls.
-- `components/nano-banana-example.tsx` owns the kickoff example and source image.
-- `hooks/use-orbis-session.ts` contains the reusable Orbis command sequence and
-  session state.
-- `dog.png` is the Nano Banana source image.
-- `lib/orbis.ts` contains the public model configuration and message helpers.
-- `lib/orbis-prompt.ts` contains the plain-text Gemini grounding instruction.
-- `lib/nano-banana.ts` contains the model and kickoff prompt.
-- `.env.example` documents the required environment variables.
+Controls are latched: press once to start, press the same key again to return to neutral. Situation buttons change weather, time of day and trigger one-shot events. The command box and the hold-to-talk button (or hold `V`) accept plain language such as "make it sunset" or "take us lower over the water".
 
-For the complete command parameters, message schemas, tracks, and current model
-behavior, use the public Reactor documentation:
+## Project layout
 
-- [Visko Orbis Stable API](https://www.reactor.inc/models/visko-orbis-stable/api)
-- [Visko Orbis Dynamic API](https://www.reactor.inc/models/visko-orbis-dynamic/api)
+| Path | What it holds |
+| --- | --- |
+| `lib/sim/types.ts` | Shared contract: simulation state and API shapes |
+| `lib/sim/prompt-compiler.ts` | State to Orbis prompts |
+| `lib/sim/destinations.ts`, `public/destinations/` | The six presets and their seed images |
+| `app/api/sim/` | `command`, `guide`, `kickoff` and `seed` routes (Gemini) |
+| `app/api/token/` | Reactor session token exchange |
+| `components/`, `hooks/` | Gallery, flight deck, HUD, mission log, scheduler, session handling |
+| `scripts/generate-seeds.mjs` | Regenerates preset seed images |
+| `tests/` | Vitest suites (`pnpm test`) |
+| `app/starter/` | The original Orbis starter UI, kept at `/starter` for debugging |
+| `instructions/` | Master plan, commit playbook and per-phase notes |
+
+To replace a preset image, drop a 16:9 PNG over `public/destinations/<id>/aerial.png` or `ground.png`.
+
+## Checks
+
+```bash
+pnpm typecheck
+```
+
+```bash
+pnpm test
+```
+
+```bash
+pnpm build
+```
+
+## References
+
+- [Reactor documentation](https://docs.reactor.inc/overview)
 - [Gemini image generation and editing](https://ai.google.dev/gemini-api/docs/image-generation)
