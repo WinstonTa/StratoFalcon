@@ -1860,3 +1860,19 @@ main.starter {
   background: var(--ink);
   border-color: var(--ink);
 }
+
+.hud-steer {
+  color: var(--dim);
+  font-size: clamp(11px, 2.1cqh, 22px);
+  font-style: normal;
+  letter-spacing: 0.12em;
+}
+
+.hud-steer.is-steering {
+  color: var(--magenta);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-foot {
+  grid-template-columns: 1fr;
+}

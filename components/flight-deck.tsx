@@ -8,7 +8,7 @@ import { destinationCode } from "@/components/destination-gallery";
 import { FlightHud, FlightKeys } from "@/components/flight-hud";
 import { MissionLog } from "@/components/mission-log";
 import { SituationPanel } from "@/components/situation-panel";
-import { CHUNK_MS } from "@/hooks/steer-pacer";
+import { CHUNK_MS, hasPendingSteer } from "@/hooks/steer-pacer";
 import { useFlightControls } from "@/hooks/use-flight-controls";
 import { cancelGuideSpeech, useGuide } from "@/hooks/use-guide";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
@@ -27,8 +27,10 @@ const LAUNCH_STEPS = [
   "First frames",
 ] as const;
 
-/** The descent is steered for about two chunks before the view switches. */
-const DESCENT_MS = 2 * CHUNK_MS + 400;
+/** The descent is shown for about two chunks before the view switches. */
+const DESCENT_MS = 2 * CHUNK_MS + 300;
+/** Longest wait for the descent prompt to leave (one pacing gap plus slack). */
+const DESCENT_SEND_TIMEOUT_MS = 2600;
 /** Lift an overlay anyway if a started run never reports frames. */
 const FRAME_REPORT_TIMEOUT_MS = 15_000;
 
@@ -178,8 +180,12 @@ function FlightSession({
     cancelGuideSpeech();
     setLandingStage("descent");
     setPhase("landing");
-    // The scheduler keeps running through the descent and sends these.
+    // The scheduler keeps running through the descent. Wait until the descent
+    // prompt has actually left (it may be held for pacing), then give it two
+    // chunks on screen before the switch.
     store.applyDelta({ flight: { pitch: "descend", bank: "level" } });
+    const sendDeadline = Date.now() + DESCENT_SEND_TIMEOUT_MS;
+    while (hasPendingSteer() && Date.now() < sendDeadline) await sleep(100);
     await sleep(DESCENT_MS);
     if (endingRef.current || useSimStore.getState().phase !== "landing") return;
 

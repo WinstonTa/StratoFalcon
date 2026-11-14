@@ -10,6 +10,7 @@ import {
   isTourControlActive,
   TOUR_KEYS,
 } from "@/hooks/use-flight-controls";
+import { describeMotion } from "@/lib/sim/prompt-compiler";
 import { statesEqual, useSimStore } from "@/lib/sim/store";
 import type { FlightState, TourState } from "@/lib/sim/types";
 
@@ -159,20 +160,48 @@ export function describeTour(tour: TourState): Readout {
   return { headline: parts.join(" · "), hints };
 }
 
+/**
+ * Whether the model has been told about the current state. Prompts are paced
+ * (one per 1.9 s) so each change has time to land; while a change is waiting
+ * its turn the countdown makes the wait read as deliberate.
+ */
+function SteerStatus() {
+  const state = useSimStore((store) => store.state);
+  const lastSentState = useSimStore((store) => store.lastSentState);
+  const holdUntil = useSimStore((store) => store.steerHoldUntil);
+  const inSync = statesEqual(lastSentState, state);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (holdUntil === null) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, [holdUntil]);
+
+  if (inSync) return <em className="hud-steer">Model in sync</em>;
+  const wait = holdUntil === null ? 0 : (holdUntil - now) / 1000;
+  return (
+    <em className="hud-steer is-steering">
+      {wait > 0.05
+        ? `Steering · next update in ${wait.toFixed(1)} s`
+        : "Steering · sending now"}
+    </em>
+  );
+}
+
 function HudReadout({ headline, hints }: Readout) {
   return (
     <div className="hud-readout">
       <strong>{headline}</strong>
       <span>{hints.join(" · ")}</span>
+      <SteerStatus />
     </div>
   );
 }
 
 function HudFoot() {
-  const state = useSimStore((store) => store.state);
-  const lastSentState = useSimStore((store) => store.lastSentState);
-  const inSync = statesEqual(lastSentState, state);
-  const { environment, event } = state;
+  const { environment, event } = useSimStore((store) => store.state);
 
   return (
     <div className="hud-foot">
@@ -181,27 +210,28 @@ function HudFoot() {
         <span>{environment.weather}</span>
         {event && <span className="hud-env-event">{event.label}</span>}
       </div>
-      <div className={`hud-sync${inSync ? "" : " is-steering"}`}>
-        {inSync ? "Model in sync" : "Sending to model"}
-      </div>
     </div>
   );
 }
 
 function TourHud() {
-  const tour = useSimStore((store) => store.state.tour);
+  const state = useSimStore((store) => store.state);
 
   return (
     <div className="hud hud-tour" aria-hidden="true">
       <div className="hud-shade" />
-      <HudReadout {...describeTour(tour)} />
+      <HudReadout
+        headline={describeMotion(state)}
+        hints={describeTour(state.tour).hints}
+      />
       <HudFoot />
     </div>
   );
 }
 
 function AirHud() {
-  const flight = useSimStore((store) => store.state.flight);
+  const state = useSimStore((store) => store.state);
+  const { flight } = state;
   const speed = useRollingNumber(SPEED_KNOTS[flight.speed], 2200);
   const altitude = useAltimeter(flight);
 
@@ -213,7 +243,10 @@ function AirHud() {
   return (
     <div className="hud" aria-hidden="true">
       <div className="hud-shade" />
-      <HudReadout {...describeFlight(flight)} />
+      <HudReadout
+        headline={describeMotion(state)}
+        hints={describeFlight(flight).hints}
+      />
 
       {/* Artificial horizon: tilts gently with bank, slides with pitch. */}
       <div

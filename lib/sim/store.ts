@@ -92,6 +92,13 @@ interface SimStore {
   state: SimState;
   /** The state Orbis has been told about so far (kickoff plus sent steers). */
   lastSentState: SimState;
+  /**
+   * The last state whose prompt is confirmed to have driven a chunk. Prompts
+   * are compiled against this, not against `lastSentState`: a weather, light
+   * or event sentence is repeated in every prompt until one carrying it has
+   * actually been applied. Its `event` is always null.
+   */
+  confirmedState: SimState;
   missionLog: MissionLogEntry[];
   guideLines: string[];
   /**
@@ -106,6 +113,21 @@ interface SimStore {
   applyDelta: (delta: SimStateDelta) => void;
   /** Record that a steer covering `delta` was sent to Orbis. */
   advanceLastSent: (delta: SimStateDelta) => void;
+  /**
+   * The prompt for the current `state` has just been sent: `lastSentState`
+   * becomes `state`. A one-shot event stays in both until it is confirmed.
+   */
+  markStateSent: () => void;
+  /**
+   * Orbis has run a chunk with the prompt compiled for `snapshot`. That state
+   * becomes the baseline the next prompt is compiled against, so its weather
+   * and light are no longer restated, and its one-shot event is retired from
+   * `state` and `lastSentState` together (which therefore stay equal).
+   */
+  confirmApplied: (snapshot: SimState) => void;
+  /** Epoch ms a steer is being held until for pacing, or null. */
+  steerHoldUntil: number | null;
+  setSteerHold: (until: number | null) => void;
   /** Drop the one-shot event from `state` once its sentence has been sent. */
   clearEvent: () => void;
   setPhase: (phase: SimPhase) => void;
@@ -143,6 +165,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   destination: null,
   state: freshState(),
   lastSentState: freshState(),
+  confirmedState: freshState(),
   missionLog: [],
   guideLines: [],
   groundStatus: "ready",
@@ -154,6 +177,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
       groundStatus: destination.groundImage ? "ready" : "preparing",
       state: freshState(),
       lastSentState: freshState(),
+      confirmedState: freshState(),
+      steerHoldUntil: null,
       guideLines: [],
       missionLog: [
         makeEntry("system", `Destination selected: ${destination.name}`),
@@ -178,6 +203,32 @@ export const useSimStore = create<SimStore>((set, get) => ({
       lastSentState: applyStateDelta(store.lastSentState, delta),
     })),
 
+  markStateSent: () =>
+    set((store) => ({ lastSentState: applyStateDelta(store.state, {}) })),
+
+  confirmApplied: (snapshot) =>
+    set((store) => {
+      // A confirmation from before a landing or takeoff says nothing about
+      // the new view.
+      if (snapshot.mode !== store.state.mode) return store;
+      const retired = snapshot.event?.prompt;
+      const retire = (target: SimState) =>
+        retired && target.event?.prompt === retired
+          ? applyStateDelta(target, { event: null })
+          : target;
+      return {
+        confirmedState: applyStateDelta(snapshot, { event: null }),
+        state: retire(store.state),
+        lastSentState: retire(store.lastSentState),
+      };
+    }),
+
+  steerHoldUntil: null,
+  setSteerHold: (until) =>
+    set((store) =>
+      store.steerHoldUntil === until ? store : { steerHoldUntil: until },
+    ),
+
   clearEvent: () =>
     set((store) => ({
       state: applyStateDelta(store.state, { event: null }),
@@ -198,12 +249,14 @@ export const useSimStore = create<SimStore>((set, get) => ({
           event: null,
         },
         lastSentState: { ...base, mode },
+        confirmedState: { ...base, mode },
       };
     }),
 
   resyncLastSent: () =>
     set((store) => ({
       lastSentState: { ...freshState(), mode: store.state.mode },
+      confirmedState: { ...freshState(), mode: store.state.mode },
     })),
 
   updateDestination: (id, patch) =>
@@ -263,8 +316,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
       destination: null,
       state: freshState(),
       lastSentState: freshState(),
+      confirmedState: freshState(),
       missionLog: [],
       guideLines: [],
       groundStatus: "ready",
+      steerHoldUntil: null,
     }),
 }));
