@@ -98,4 +98,62 @@ Checked for each commit: subject format, single concern, owned paths, secrets, `
 
 No secrets, `.env*` files or `.reactor-dev-sessions.json` in any commit; `git ls-files` shows only `.env.example`.
 
+| `df52ce5` feat/destinations, `1ad9c75` feat/seed-generator, `2508266` feat/seed-images, `bf0cd0d` docs | backend-dev | `lib/sim/destinations.ts`, `scripts/generate-seeds.mjs`, `public/destinations/**`, own note | clean |
+| `a6c2525` feat/flight-deck | frontend-dev | `components/**`, `hooks/**`, `app/styles.css` | clean |
+| `95cdeb4` feat/flight-controls | frontend-dev | `components/**`, `hooks/use-flight-controls.ts`, `app/styles.css` | clean |
+| `d82b5c8` feat/steer-scheduler | frontend-dev | `hooks/use-steer-scheduler.ts`, `components/flight-deck.tsx` | defect F-1 below |
+| `3a67ab5` feat/sim-command | backend-dev | `app/api/sim/command/**`, `lib/server/**`, `lib/sim/prompts/**` | clean (Phase 2 work, smoke-tested in section 12) |
+| `e12636b` feat/mission-log | frontend-dev | `components/**`, `app/styles.css` | clean |
+| `b93d980` feat/flight-deck fallbacks | frontend-dev | `components/flight-deck.tsx`, `hooks/use-orbis-session.ts` | clean |
+
+## 10. Update to section 7 after `2508266`
+
+The committed seed images are all 1344x756 PNG, 1.9 to 2.8 MB each (the smaller files seen at 2:30 PM were an intermediate 256-colour encode that backend-dev replaced). All 129 destination tests still pass. The Gate 1 note now applies to every preset: each flight start uploads about 2.4 MB to Reactor before `set_image`, the upload limit is undocumented, and none of these files has been used as a start image yet.
+
+## 11. Frontend review (`a6c2525`, `95cdeb4`, `d82b5c8`, `e12636b`, `b93d980`)
+
+Checked against the Reactor SDK source in `node_modules/@reactor-team/js-sdk` (3.4.0) and the Orbis Dynamic schema page on docs.reactor.inc:
+
+- `sendCommand` resolves with the correlated reply and never rejects, so the un-awaited `set_audio_prompt` and the scheduler's `.then` are safe.
+- `chunk_complete` carries `chunk_index`, `active_prompt` and `frames_emitted`; `set_audio_prompt` takes `{ prompt }` and may be sent before `start`. The code uses these names.
+- `ReactorProvider` disconnects and disposes on unmount, and `disconnect()` ends the session server-side, so leaving the deck closes the session even without the explicit disconnect.
+- `reactStrictMode` is `false` in `next.config.ts`, so the connect-once effect is not double-invoked in development.
+
+### F-1 (frontend-dev, `hooks/use-steer-scheduler.ts:53-64` and `:150-159`): two steers can leave less than one chunk apart
+
+- Input: dry run on Paris, keys A, W, R pressed within about 0.2 s, two seconds after the controls came up.
+- Observed in the mission log: "The aircraft banks left…" at T+00:02, "The aircraft pitches up and climbs…" at T+00:02, "The aircraft accelerates…" at T+00:04. The first two prompts left about 0.4 s apart.
+- Expected (master doc section 2 and 3.4): at most one steer per chunk, so at least about 1.8 s between sends.
+- Cause: the debounce fallback sends 250 ms after the input and sets `sentThisChunk`; the next chunk boundary, which can be any time from 0 to 1.83 s later, clears the flag and sends the next pending steer straight away. The live path has the same structure with `chunk_complete` in place of the dry-run timer.
+- Live consequence, not verified (needs a session): the first sentence is the newest prompt for less than one chunk. If both commands reach Orbis between the same two chunk boundaries, the first is overwritten and never drives a chunk, yet `lastSentState` counts it as sent and the log later marks it applied. The demo script's "bank left, climb" is this input pattern.
+
+### F-2 (frontend-dev, `components/stratofalcon-app.tsx:20-24`): the dry-run flag starts `false` and is set in an effect
+
+- By code reading, not reproduced (reproducing it would open a live session): if `StratoFalconApp` remounts while the store phase is not `idle` (a Fast Refresh remount after an edit, development only), `FlightSession`'s connect effect (`components/flight-deck.tsx:109-117`) runs before the parent effect sets `dryRun`, sees `dryRun === false` and calls `connectSession()`. A tab opened with `?dry=1` would then open a paid Reactor session.
+- Normal use is safe: the deck only mounts after a card click, by which time the flag is set (the "Dry run · no session" chip was present in every check).
+- Low severity for the demo; it matters for agents doing dry-run checks while files are being edited. I leave the deck (End flight) and close the tab after each check.
+
+No other defect found in the launch flow, the keyboard handler (repeat, modifier and typing-target guards, Space blur), the altitude bands, the HUD or the mission log.
+
+## 12. Browser and route smoke (2:35 to 2:40 PM), no Reactor session
+
+Browser pane, `http://localhost:3000/?dry=1`:
+
+- Gallery renders six cards with images, the upload card, the model label `visko-orbis-dynamic` and the dry-run chip. No console errors.
+- Clicking Venice Beach and Paris opens the deck; A, W, Space, R change the HUD on the same frame (Bank left, Climbing, Wings level, speed fast) and add input and state entries to the mission log.
+- With the scheduler in place the queue drains: 3 prompts logged and marked applied, then "altitude mid → high" from the altitude band after about 7 s of climb.
+- Network log for the tab during both dry runs: no request to `/api/*` and none to any Reactor host. End flight returns to the gallery.
+
+`POST /api/sim/command` (one Gemini call):
+
+| Request | Result |
+| --- | --- |
+| body `nope` / `[]` | 400 `{"error":"Send a JSON body with text, state and destinationName"}` |
+| no `text`, or `text: 5` | 400 `{"error":"A command text is required"}` |
+| no `state`, or `mode: "swim"` | 400 `{"error":"A valid state with mode flight or tour is required"}` |
+| `GET` | 405 |
+| `text: "make it sunset"`, initial flight state, Paris | 200 in 1.14 s, `{"delta":{"environment":{"timeOfDay":"sunset"}},"say":"Changing time of day to sunset."}`, `Cache-Control: no-store`, `Server-Timing: gemini;dur=1128` |
+
+Intermediate gate at 2:39 PM on `e12636b` plus backend-dev's uncommitted guide route: `pnpm typecheck` exit 0; `pnpm build` exit 0; `pnpm test` 337 tests, 336 passed, 1 failed (the same compiler test).
+
 Further sections are appended below as commits land.
