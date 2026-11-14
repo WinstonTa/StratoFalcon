@@ -9,6 +9,7 @@ import {
   FlightKeys,
   useVideoFeedbackStyle,
 } from "@/components/flight-hud";
+import { MissionLog } from "@/components/mission-log";
 import {
   useAltitudeBands,
   useFlightControls,
@@ -249,7 +250,7 @@ function FlightSession({
               className="btn btn-ghost btn-small"
               onClick={session.toggleMuted}
             >
-              {session.muted ? "Sound off" : "Sound on"}
+              {session.muted ? "Enable sound" : "Mute"}
             </button>
           )}
           <button
@@ -383,6 +384,7 @@ function FlightSession({
           </div>
           <FlightKeys disabled={!flying} />
         </section>
+        <MissionLog />
       </div>
     </main>
   );
