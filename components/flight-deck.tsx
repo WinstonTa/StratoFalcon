@@ -17,6 +17,7 @@ import {
   useFlightControls,
 } from "@/hooks/use-flight-controls";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
+import { useGuide } from "@/hooks/use-guide";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
 import { useSteerScheduler } from "@/hooks/use-steer-scheduler";
 import { ORBIS_MODEL_NAME, ORBIS_TRACKS } from "@/lib/orbis";
@@ -110,6 +111,9 @@ function FlightSession({
   const feedbackStyle = useVideoFeedbackStyle();
   // State changes reach Orbis one sentence per chunk boundary.
   useSteerScheduler({ enabled: flying && (dryRun || connected), dryRun });
+  // The Gemini guide narrates while the picture is live.
+  const [guideVoice, setGuideVoice] = useState(true);
+  const guide = useGuide({ enabled: flying, voiceOn: guideVoice });
 
   // 1. Connect once when the deck opens.
   useEffect(() => {
@@ -261,6 +265,14 @@ function FlightSession({
             {statusLabel}
           </span>
           <span className="deck-model">{MODEL_LABEL}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-small"
+            aria-pressed={guideVoice}
+            onClick={() => setGuideVoice((current) => !current)}
+          >
+            {guideVoice ? "Guide voice on" : "Guide voice off"}
+          </button>
           {!dryRun && (
             <button
               type="button"
@@ -305,6 +317,12 @@ function FlightSession({
               </div>
 
               {flying && <FlightHud />}
+              {flying && guide.caption && (
+                <p className="guide-caption">
+                  <span>Guide</span>
+                  {guide.caption}
+                </p>
+              )}
 
               {!flying && (
                 <div

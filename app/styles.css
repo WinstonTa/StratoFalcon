@@ -1687,3 +1687,34 @@ main.starter {
 .command-status:empty {
   display: none;
 }
+
+/* Guide caption: a subtitle over the video, above the HUD foot. */
+.guide-caption {
+  position: absolute;
+  bottom: 13cqh;
+  left: 50%;
+  z-index: 4;
+  width: max-content;
+  max-width: 66cqw;
+  margin: 0;
+  padding: 1cqh 1.6cqw;
+  color: var(--text);
+  font-size: clamp(15px, 3.1cqh, 34px);
+  font-weight: 500;
+  line-height: 1.25;
+  text-align: center;
+  background: #05070ad9;
+  border-left: 4px solid var(--amber);
+  transform: translateX(-50%);
+  animation: log-in 300ms ease-out;
+  pointer-events: none;
+}
+
+.guide-caption span {
+  display: block;
+  color: var(--amber);
+  font-family: var(--font-mono-stack);
+  font-size: 0.5em;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
