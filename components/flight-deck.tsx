@@ -15,6 +15,7 @@ import {
 } from "@/hooks/use-flight-controls";
 import { useOrbisSession } from "@/hooks/use-orbis-session";
 import { useReactorJwt } from "@/hooks/use-reactor-jwt";
+import { useSteerScheduler } from "@/hooks/use-steer-scheduler";
 import { ORBIS_MODEL_NAME, ORBIS_TRACKS } from "@/lib/orbis";
 import { useSimStore } from "@/lib/sim/store";
 import type { Destination } from "@/lib/sim/types";
@@ -104,6 +105,8 @@ function FlightSession({
   useFlightControls(flying);
   useAltitudeBands(flying);
   const feedbackStyle = useVideoFeedbackStyle();
+  // State changes reach Orbis one sentence per chunk boundary.
+  useSteerScheduler({ enabled: flying && (dryRun || connected), dryRun });
 
   // 1. Connect once when the deck opens.
   useEffect(() => {
