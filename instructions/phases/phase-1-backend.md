@@ -21,3 +21,38 @@
   - A mode change alone produces no steer; landing is a reset plus a new kickoff.
   - The event prompt is sent as given (whitespace collapsed, cut at 40 words). The compiler does not check it for negation or place names; `/api/sim/command` is responsible for that.
 - Next: destinations manifest and seed images.
+
+### 2:33 PM PST — Destinations manifest (`lib/sim/destinations.ts`)
+- Commits: 7b584d5 feat/destinations: add the six preset destinations manifest; df52ce5 feat/destinations: align kickoff prompts with the final seed images
+- State: pushed
+- Exports (exact names): `DESTINATIONS: Destination[]` in this order: `paris`, `tokyo`, `los-angeles`, `new-york-city`, `boston`, `venice-beach`; `getDestination(id: string): Destination | undefined`.
+- Image paths: `/destinations/<id>/aerial.png` and `/destinations/<id>/ground.png` (extension is **.png** for all twelve).
+- Verified:
+  - `pnpm typecheck` — exit 0.
+  - Ad hoc Node script (not committed) — "DESTINATIONS OK": ids and order as above; every `aerialImage`/`groundImage` path resolves to an existing file under `public/` whose PNG header is exactly 16:9; every kickoff is 3 sentences, 60–78 words, with no negation words; 5 guideFacts and an audioPrompt per preset; `getDestination("nowhere")` is `undefined`.
+  - Kickoff text was written against the final images after viewing each one.
+- Not verified: no kickoff has been sent to Orbis. `audioPrompt` values have not been sent to `set_audio_prompt`. guideFacts are well-known facts written from memory; they were not checked against a source today.
+- Mocked or stubbed: none
+- Needs from others: nothing. Note for the architect: the contract has a single `audioPrompt` per destination, so the same ambience is used in flight and on the ground.
+- Next: seed generator and images.
+
+### 2:33 PM PST — Seed generator and images (`scripts/generate-seeds.mjs`, `public/destinations/**`)
+- Commits: 1ad9c75 feat/seed-generator: add Nano Banana seed image script; 2508266 feat/seed-images: add generated 16:9 seed images for the six presets
+- State: pushed
+- Usage: `node scripts/generate-seeds.mjs [--force] [id | id/view ...]`, e.g. `node scripts/generate-seeds.mjs --force boston/aerial`. Reads the model name from `lib/nano-banana.ts` (`gemini-2.5-flash-image`), loads `GEMINI_API_KEY` with `@next/env` `loadEnvConfig`, never prints it.
+- Verified:
+  - Ran the script for all 12 targets, then `--force` for selected targets, then a plain re-run: 12 files written, the re-run reported 12 skips (skip logic works), an unknown-free run exited 0.
+  - PNG headers read back for all 12: 1344x756, colour type 2 (truecolour), 1.9–2.8 MB each, about 29 MB in total.
+  - Viewed all 12 final images. Each is a photorealistic landscape frame of the right place, with no cockpit, window frame or aircraft parts and no caption or watermark. Aerials look forward toward the landmark area; grounds are eye-level with a path leading forward.
+  - `curl` against the running dev server: `/destinations/paris/aerial.png` and `/destinations/venice-beach/ground.png` return 200 `image/png`.
+- Aspect ratio, stated plainly: the model's "16:9" setting returns **1344x768, ratio 1.75, which is not 16:9**. The script center-crops 6 px off the top and bottom to 1344x756 (exact 16:9) using `sharp`, which is present in `node_modules` as a Next.js dependency but is not declared in `package.json`. If `sharp` cannot be imported the script still works and logs "NOT exact 16:9" for each file. All 12 committed files are exact 16:9.
+- Regenerated during review: `tokyo/ground` (first take had a soft-drink brand logo on a vending machine), `paris/ground` (garbled shop lettering), `boston/aerial` (dark smudge in the sky). Nine images were also regenerated after I briefly used a sharp PNG option that silently quantized them to 256 colours; that option is removed and commented in the script.
+- Known imperfections in the committed images:
+  - `paris/ground` still has one small illegible scribble on an awning; a "no entry"-style round road sign is visible.
+  - `venice-beach/aerial` shows a pier with a small building at its end and a road beside the sand; it reads as a Southern California beach but is not a geographically exact view of Venice.
+  - `new-york-city/ground` shows people in winter coats while the default state is a clear day.
+  - Files are large (about 2.4 MB each). The start image is uploaded to Reactor at every start; if that upload is slow at the venue, converting to JPEG would cut it roughly tenfold, but whether Reactor accepts JPEG was not tested, so PNG (the starter's proven format) was kept.
+- Not verified: none of the images has been used as an Orbis start image. `--force` without sharp installed was not exercised.
+- Mocked or stubbed: none
+- Needs from others: architect — decide whether `sharp` should become a declared devDependency. Winston may replace any file in place (same name, 16:9 PNG) without code changes.
+- Next: Phase 2 routes `/api/sim/command` and `/api/sim/guide`.
