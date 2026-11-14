@@ -9,6 +9,13 @@ import {
   unwrapOrbisMessage,
 } from "@/lib/orbis";
 
+export interface StartOptions {
+  /** Ambient sound for the run. */
+  audioPrompt?: string;
+  /** Delivery tier to request when Orbis lists it, e.g. "1080p". */
+  preferResolution?: string;
+}
+
 export function useOrbisSession(
   clearJwt: () => void,
   getCurrentJwt: () => string | null,
@@ -47,6 +54,9 @@ export function useOrbisSession(
   const conditionsReadyResolver = useRef<(() => void) | null>(null);
   const imageReadyResolver = useRef<(() => void) | null>(null);
   const resetResolver = useRef<(() => void) | null>(null);
+  // Tiers Orbis itself has reported in a state message (not the documented
+  // defaults), so a preferred tier is only ever requested when it is offered.
+  const reportedResolutions = useRef<string[]>([]);
   const expectsImageForRun = useRef(false);
 
   const connected = status === "ready";
@@ -215,6 +225,7 @@ export function useOrbisSession(
     if (message.type === "state" && message.available_resolutions) {
       const reported = message.available_resolutions.map(String);
       if (reported.length) {
+        reportedResolutions.current = reported;
         setAvailableResolutions(reported);
         setResolution((current) =>
           !current || reported.includes(current) ? current : "",
@@ -269,7 +280,7 @@ export function useOrbisSession(
   const startGeneration = async (
     startImage: File | null,
     runPrompt: string,
-    options?: { audioPrompt?: string },
+    options?: StartOptions,
   ) => {
     if (!runPrompt.trim()) throw new Error("Enter a prompt before starting.");
     expectsImageForRun.current = Boolean(startImage);
@@ -305,7 +316,17 @@ export function useOrbisSession(
       setEvents((current) => ["image_accepted", ...current].slice(0, 8));
     }
 
-    if (resolution) await sendCommand("set_resolution", { resolution });
+    // An explicit choice (the starter form) wins; otherwise use the caller's
+    // preferred tier, but only if this session reported it as available.
+    const preferred = options?.preferResolution;
+    const chosenResolution =
+      resolution ||
+      (preferred && reportedResolutions.current.includes(preferred)
+        ? preferred
+        : "");
+    if (chosenResolution) {
+      await sendCommand("set_resolution", { resolution: chosenResolution });
+    }
 
     // Ambient sound for the run. Deliberately not awaited: commands are
     // delivered in order, so it still lands before `start`, and a missing or
@@ -366,7 +387,7 @@ export function useOrbisSession(
   const transitionTo = (
     startImage: File | null,
     runPrompt: string,
-    options?: { audioPrompt?: string },
+    options?: StartOptions,
   ) =>
     runAction(async () => {
       await resetGeneration();
@@ -380,7 +401,7 @@ export function useOrbisSession(
   const restartRun = (
     startImage: File | null,
     runPrompt: string,
-    options?: { audioPrompt?: string },
+    options?: StartOptions,
   ) =>
     runAction(async () => {
       setRunComplete(false);
@@ -407,7 +428,7 @@ export function useOrbisSession(
   const startFlight = (
     startImage: File | null,
     runPrompt: string,
-    options?: { audioPrompt?: string },
+    options?: StartOptions,
   ) => runAction(() => startGeneration(startImage, runPrompt, options));
 
   const startFromNanoOutput = async (

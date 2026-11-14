@@ -31,6 +31,11 @@ const LAUNCH_STEPS = [
 const DESCENT_MS = 2 * CHUNK_MS + 300;
 /** Longest wait for the descent prompt to leave (one pacing gap plus slack). */
 const DESCENT_SEND_TIMEOUT_MS = 2600;
+/**
+ * Lighter to deliver than the 2k default and a match for a projector. Only
+ * requested when the session reports it in state.available_resolutions.
+ */
+const PREFERRED_RESOLUTION = "1080p";
 /** Lift an overlay anyway if a started run never reports frames. */
 const FRAME_REPORT_TIMEOUT_MS = 15_000;
 
@@ -160,7 +165,10 @@ function FlightSession({
     kickoffInUse.current = prompt;
     log("prompt", prompt, "pending");
 
-    const options = { audioPrompt: current.audioPrompt };
+    const options = {
+      audioPrompt: current.audioPrompt,
+      preferResolution: PREFERRED_RESOLUTION,
+    };
     const started = withReset
       ? await session.transitionTo(image, prompt, options)
       : await session.startFlight(image, prompt, options);
@@ -338,7 +346,10 @@ function FlightSession({
     log("prompt", seed.prompt, "pending");
 
     void session
-      .restartRun(seed.image, seed.prompt, { audioPrompt: seed.audioPrompt })
+      .restartRun(seed.image, seed.prompt, {
+        audioPrompt: seed.audioPrompt,
+        preferResolution: PREFERRED_RESOLUTION,
+      })
       .then((restarted) => {
         if (restarted) {
           setArmed(true);
