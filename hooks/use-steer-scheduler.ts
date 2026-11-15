@@ -111,7 +111,8 @@ export function useSteerScheduler({
     const unsubscribe = useSimStore.subscribe((next, previous) => {
       if (
         next.state === previous.state &&
-        next.lastSentState === previous.lastSentState
+        next.lastSentState === previous.lastSentState &&
+        next.resendRequested === previous.resendRequested
       ) {
         return;
       }

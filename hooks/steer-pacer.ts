@@ -85,8 +85,8 @@ export class SteerPacer {
 
 /** Whether Orbis has yet to be told about the current state. */
 export function hasPendingSteer() {
-  const { state, lastSentState } = useSimStore.getState();
-  return !statesEqual(lastSentState, state);
+  const { state, lastSentState, resendRequested } = useSimStore.getState();
+  return resendRequested || !statesEqual(lastSentState, state);
 }
 
 export interface SteerTaken {
@@ -110,9 +110,17 @@ export interface SteerTaken {
  */
 export function takeNextSteer(lastPrompt: string | null): SteerTaken | null {
   const store = useSimStore.getState();
-  if (statesEqual(store.lastSentState, store.state)) return null;
+  if (
+    !store.resendRequested &&
+    statesEqual(store.lastSentState, store.state)
+  ) {
+    return null;
+  }
   const state = store.state;
-  const prompt = compileMotionPrompt(state, store.confirmedState).trim();
+  // Turn-sense calibration only changes the wording, never the state.
+  const prompt = compileMotionPrompt(state, store.confirmedState, {
+    invertTurn: store.invertTurn,
+  }).trim();
   store.markStateSent();
   if (!prompt) return null;
   // De-duplicate identical text, but never a prompt that carries an event:

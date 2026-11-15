@@ -292,6 +292,41 @@ function AirHud() {
   );
 }
 
+/**
+ * Turn-sense calibration, always visible under the controls. Some models read
+ * "the scene slides left" as a left turn and some as a right turn; this flips
+ * the wording without touching the keys or the HUD.
+ */
+export function TurnSense() {
+  const invertTurn = useSimStore((store) => store.invertTurn);
+  const setInvertTurn = useSimStore((store) => store.setInvertTurn);
+
+  return (
+    <div className="turn-sense" role="group" aria-label="Turn sense">
+      <span className="situation-title">Turn sense</span>
+      <button
+        type="button"
+        className={`chip${invertTurn ? "" : " is-on"}`}
+        aria-pressed={!invertTurn}
+        onClick={() => setInvertTurn(false)}
+      >
+        Normal
+      </button>
+      <button
+        type="button"
+        className={`chip${invertTurn ? " is-on" : ""}`}
+        aria-pressed={invertTurn}
+        onClick={() => setInvertTurn(true)}
+      >
+        Flipped
+      </button>
+      <span className="turn-sense-hint">
+        If D turns the view left, flip this
+      </span>
+    </div>
+  );
+}
+
 export function FlightHud() {
   const mode = useSimStore((store) => store.state.mode);
   return mode === "tour" ? <TourHud /> : <AirHud />;

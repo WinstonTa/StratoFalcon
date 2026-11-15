@@ -1876,3 +1876,26 @@ main.starter {
 .hud-foot {
   grid-template-columns: 1fr;
 }
+
+/* Turn-sense calibration: one slim row, always visible. */
+.turn-sense {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.turn-sense .chip {
+  padding: 2px 12px;
+  font-size: 0.95rem;
+}
+
+.turn-sense-hint {
+  margin-left: 10px;
+  color: var(--amber);
+  font-family: var(--font-mono-stack);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}

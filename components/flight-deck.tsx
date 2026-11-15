@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { CommandBar } from "@/components/command-bar";
 import { destinationCode } from "@/components/destination-gallery";
-import { FlightHud, FlightKeys } from "@/components/flight-hud";
+import { FlightHud, FlightKeys, TurnSense } from "@/components/flight-hud";
 import { MissionLog } from "@/components/mission-log";
 import { SituationPanel } from "@/components/situation-panel";
 import { CHUNK_MS, hasPendingSteer } from "@/hooks/steer-pacer";
@@ -647,6 +647,7 @@ function FlightSession({
             />
             <SituationPanel disabled={!live} />
             <CommandBar disabled={!live} />
+            <TurnSense />
           </div>
         </section>
         <MissionLog />

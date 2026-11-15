@@ -38,6 +38,27 @@ export type GroundStatus = "ready" | "preparing" | "failed";
 
 const MAX_LOG_ENTRIES = 200;
 
+const INVERT_TURN_STORAGE_KEY = "stratofalcon-invert-turn";
+
+function readInvertTurn() {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(INVERT_TURN_STORAGE_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeInvertTurn(value: boolean) {
+  try {
+    window.localStorage.setItem(INVERT_TURN_STORAGE_KEY, value ? "1" : "0");
+  } catch {
+    // Private windows may block storage; the setting still holds for this page.
+  }
+}
+
 let nextLogId = 1;
 
 function makeEntry(
@@ -125,6 +146,20 @@ interface SimStore {
    * `state` and `lastSentState` together (which therefore stay equal).
    */
   confirmApplied: (snapshot: SimState) => void;
+  /**
+   * Turn-sense calibration. When true the compiler swaps its left and right
+   * wording (for a model that reads it the other way); the state, the keys and
+   * the HUD stay exactly as pressed. Remembered in this browser, and kept
+   * across flights.
+   */
+  invertTurn: boolean;
+  /** Change the turn sense and resend the current motion with the new wording. */
+  setInvertTurn: (value: boolean) => void;
+  /**
+   * Set when the current motion must be compiled and sent again although the
+   * state itself has not changed. Cleared by markStateSent.
+   */
+  resendRequested: boolean;
   /** Epoch ms a steer is being held until for pacing, or null. */
   steerHoldUntil: number | null;
   setSteerHold: (until: number | null) => void;
@@ -179,6 +214,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
       lastSentState: freshState(),
       confirmedState: freshState(),
       steerHoldUntil: null,
+      resendRequested: false,
       guideLines: [],
       missionLog: [
         makeEntry("system", `Destination selected: ${destination.name}`),
@@ -204,7 +240,29 @@ export const useSimStore = create<SimStore>((set, get) => ({
     })),
 
   markStateSent: () =>
-    set((store) => ({ lastSentState: applyStateDelta(store.state, {}) })),
+    set((store) => ({
+      lastSentState: applyStateDelta(store.state, {}),
+      resendRequested: false,
+    })),
+
+  invertTurn: readInvertTurn(),
+  resendRequested: false,
+  setInvertTurn: (value) => {
+    if (get().invertTurn === value) return;
+    writeInvertTurn(value);
+    set((store) => ({
+      invertTurn: value,
+      resendRequested: true,
+      missionLog: appendEntries(store.missionLog, [
+        makeEntry(
+          "system",
+          value
+            ? "Turn sense flipped: prompts now word left and right the other way round"
+            : "Turn sense normal",
+        ),
+      ]),
+    }));
+  },
 
   confirmApplied: (snapshot) =>
     set((store) => {
@@ -321,5 +379,6 @@ export const useSimStore = create<SimStore>((set, get) => ({
       guideLines: [],
       groundStatus: "ready",
       steerHoldUntil: null,
+      resendRequested: false,
     }),
 }));
