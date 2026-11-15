@@ -176,7 +176,12 @@ describe("compileMotionPrompt: the motion sentence", () => {
     expect(compileMotionPrompt(flightState({ ...full, pitch: "descend" }))).not.toBe(fullPrompt);
     expect(compileMotionPrompt(flightState({ ...full, speed: "slow" }))).not.toBe(fullPrompt);
     expect(compileMotionPrompt(flightState({ ...full, altitude: "high" }))).not.toBe(fullPrompt);
-    expect(fullPrompt).toMatch(/left/);
+    // Turn wording v3 names where the scenery goes, which is the side
+    // opposite the turn: a left turn slides the scene right.
+    expect(fullPrompt).toMatch(/sliding right/);
+    expect(
+      compileMotionPrompt(flightState(full), undefined, { invertTurn: true }),
+    ).toMatch(/sliding left/);
     expect(fullPrompt).toMatch(/fast/);
     expect(fullPrompt).toMatch(/low/);
   });
@@ -187,7 +192,10 @@ describe("compileMotionPrompt: the motion sentence", () => {
     expect(compileMotionPrompt(tourState({ ...full, move: "stand" }))).not.toBe(fullPrompt);
     expect(compileMotionPrompt(tourState({ ...full, turn: "right" }))).not.toBe(fullPrompt);
     expect(compileMotionPrompt(tourState({ ...full, gaze: "ahead" }))).not.toBe(fullPrompt);
-    expect(fullPrompt).toMatch(/left/);
+    expect(fullPrompt).toMatch(/slides right/);
+    expect(
+      compileMotionPrompt(tourState(full), undefined, { invertTurn: true }),
+    ).toMatch(/slides left/);
     expect(fullPrompt).toMatch(/up/);
   });
 
