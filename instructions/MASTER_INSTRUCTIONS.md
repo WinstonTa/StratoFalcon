@@ -89,7 +89,15 @@ Three ideas carry the design:
 
 1. **State over strings.** The client holds one `SimState`. Nothing writes prompt text by hand at runtime; a pure function compiles state into prompts.
 2. **Deterministic fast path.** Keyboard and situation buttons never wait on an LLM. Gemini is only in the loop for free text, voice, guide lines and seed preparation.
-3. **Instant local feedback.** The HUD and a small CSS roll or zoom on the video respond on the same frame as the key press, so the 2–4 s model latency reads as the aircraft responding, not as lag.
+3. **Instant local feedback.** The HUD responds on the same frame as the key press, so the 2–4 s model latency reads as the aircraft responding, not as lag. The video itself is never moved in CSS (the first build rolled it, which was nauseating).
+
+> **Steering was redesigned after the first live flights.** The scheduler below and the "one steer per chunk" rule in §2 and §3.4 are superseded. What is built now, as confirmed by Winston on the live site at 4:05 PM (pressing `D` turns the view right):
+>
+> - `compileMotionPrompt(next, prev?, { invertTurn })` returns **one camera-motion sentence for the whole current motion**. A turn is described by where the scenery slides, which is the side opposite the turn, because Orbis moves the scenery in the direction the prompt names. Weather and time of day are appended as explicit "changes from … to …" sentences until a prompt carrying them is confirmed applied, then dropped.
+> - The scheduler is **last-write-wins**: the first change leaves after 80 ms, later ones at least 1.2 s after the previous send, always the latest state.
+> - A **Turn sense: Normal | Flipped** switch in the flight deck swaps turn wording per browser. Normal is confirmed correct on Orbis Dynamic.
+>
+> The reasoning and evidence are in [phases/change-steering-rework.md](phases/change-steering-rework.md).
 
 ### 3.1 Shared contract (`lib/sim/types.ts`, architect-owned)
 
@@ -331,18 +339,31 @@ DEMO_ACCESS_CODE=           # optional; required on the Vercel deployment
 - Local: `pnpm install`, `pnpm dev`, open `http://localhost:3000` in **Chrome** (voice needs it).
 - Vercel: a public URL lets anyone with the link spend Reactor credits, so the deployment must set `DEMO_ACCESS_CODE` and the token route must refuse requests without it. The development session registry does not run in production; the per-token session cap is the backstop.
 
-## 10. Demo script (draft, two minutes)
+## 10. Demo script (two minutes)
 
-1. Gallery: "Pick anywhere." Choose Venice Beach. Video within ten seconds.
-2. Bank left, climb. Point at the HUD responding instantly and the stream following.
-3. Click **Storm**. Then type "make it sunset". Then say "take us lower over the water".
-4. Point at the mission log: input, Gemini's state change, the prompt sent.
-5. Press **Land**. The guide speaks. Walk forward, look up.
-6. Upload a photo from the audience and fly it.
+Run it from `https://stratofalcon.vercel.app/` in Chrome, or `http://localhost:3000` as the fallback. Steps 1–4 are confirmed live; steps 5–7 have only been run in dry-run mode and must be rehearsed first.
 
-Fallback: the screen recording from the 5:15 rehearsal.
+Before going on stage: open the site, enter the access code if asked, check **Turn sense** reads Normal, click **Enable sound**, and leave the gallery showing.
+
+1. **Pick a place (10 s).** "This is a live world model, not a rendered clip. Pick anywhere." Click **Venice Beach**. Talk over the launch steps; video arrives in about ten seconds.
+2. **Fly it (25 s).** Press **D**, wait for the turn, press **D** again. Press **W** to climb. Say: "The HUD answers on the same frame; the world follows a couple of seconds later, because every key becomes structured state, compiled into one camera prompt."
+3. **Change the world (25 s).** Click **Storm**. Type `make it sunset` and press Enter. Point at the mission log: the input, Gemini's state change, and the exact prompt sent, going from Pending to Applied.
+4. **Talk to it (15 s).** Hold **V** and say "take us lower over the water". If the microphone misbehaves, type it.
+5. **Land (25 s).** Press **L**. "Orbis only takes a start image before a run, so landing restarts the stream from street level." The guide speaks. Press **W** to walk and **Q** to look up.
+6. **Your photo (20 s).** End flight, upload a photo, and fly it. Gemini names the place and prepares the ground view in the background.
+7. **Close.** "State over strings, Gemini as the control plane, Orbis as the world."
+
+**If something fails on stage**
+
+- Stream does not start: End flight, pick the same place again. A second start is usually quick.
+- A turn goes the wrong way: click **Flipped** under the command box.
+- The site misbehaves: switch to `localhost:3000`, or to `/?dry=1` to show the controls, HUD and prompt log without a stream.
+- Last resort: the screen recording from rehearsal.
+
+Keep any single flight under seven minutes; Orbis Dynamic ends a run there and the automatic restart has never been exercised.
 
 ## 11. Open items
 
-- Which model is the default after the Gate 1 comparison.
-- The repo tracks both `package-lock.json` and `pnpm-lock.yaml`. Only the pnpm lockfile is kept current; resolve before the Vercel deployment.
+- `DEMO_ACCESS_CODE` is not set on the Vercel project, so the public URL is open to anyone with the link.
+- Not yet confirmed on a live stream: voice, landing, tour, take-off, the upload flow, and the run-limit restart.
+- The default model is Orbis Dynamic; Stable was never compared.
