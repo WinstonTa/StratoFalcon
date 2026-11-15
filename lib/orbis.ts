@@ -88,22 +88,21 @@ export function storeDemoCode(code: string) {
   }
 }
 
-// One prompt at a time, shared by every request that hits a 401 together, and
-// no second prompt in this page load once the visitor has dismissed one (the
-// guide polls every 20 s and must not nag).
-let codePrompt: Promise<string> | null = null;
+// The code the visitor typed in this page load. It is kept in memory from the
+// moment the prompt is answered, so a second request that hits a 401 while the
+// first retry is still in flight reuses it instead of prompting again. Once
+// the visitor has dismissed a prompt there is no second one in this page load
+// (the guide polls every 20 s and must not nag).
+let enteredCode = "";
 let promptDismissed = false;
 
-function askForDemoCode(): Promise<string> {
-  if (promptDismissed) return Promise.resolve("");
-  codePrompt ??= new Promise<string>((resolve) => {
-    const entered = window.prompt("Enter the demo access code")?.trim() ?? "";
-    if (!entered) promptDismissed = true;
-    resolve(entered);
-  }).finally(() => {
-    codePrompt = null;
-  });
-  return codePrompt;
+function askForDemoCode(): string {
+  if (enteredCode) return enteredCode;
+  if (promptDismissed) return "";
+  const entered = window.prompt("Enter the demo access code")?.trim() ?? "";
+  if (entered) enteredCode = entered;
+  else promptDismissed = true;
+  return entered;
 }
 
 /**
@@ -123,17 +122,23 @@ export async function fetchWithDemoCode(
     return fetch(input, { ...init, headers });
   };
 
-  const stored = readStoredDemoCode();
-  let response = await send(stored);
+  const tried = readStoredDemoCode();
+  let response = await send(tried);
   if (response.status !== 401) return response;
 
-  // Another request may have just stored a working code.
-  const latest = readStoredDemoCode();
-  const code = latest && latest !== stored ? latest : await askForDemoCode();
-  if (!code) return response;
+  // Another request may have stored a working code, or the visitor may have
+  // just typed one; only then ask.
+  const stored = readStoredDemoCode();
+  const code = stored && stored !== tried ? stored : askForDemoCode();
+  if (!code || code === tried) return response;
 
   response = await send(code);
-  if (response.status !== 401) storeDemoCode(code);
+  if (response.status !== 401) {
+    storeDemoCode(code);
+  } else if (enteredCode === code) {
+    // A wrong code: forget it so the next request can ask again.
+    enteredCode = "";
+  }
   return response;
 }
 
