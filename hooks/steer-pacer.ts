@@ -20,8 +20,8 @@ import type { SimState } from "@/lib/sim/types";
 
 /** One Orbis chunk: 33 frames at 18 fps. */
 export const CHUNK_MS = 1830;
-export const DEBOUNCE_MS = 150;
-export const MIN_SEND_GAP_MS = 1900;
+export const DEBOUNCE_MS = 80;
+export const MIN_SEND_GAP_MS = 1200;
 
 export interface SteerClock {
   now: () => number;
@@ -99,7 +99,7 @@ export interface SteerTaken {
 /**
  * Compiles the ONE prompt for the latest state and marks that state as sent.
  * Returns null when nothing differs, or when the compiled text is identical
- * to `lastPrompt` (the last prompt actually sent).
+ * to `lastPrompt` (the last prompt actually sent) and carries no event.
  *
  * The prompt is compiled against the last CONFIRMED state, not the last sent
  * one. The motion sentence always describes the whole current motion; a
@@ -114,6 +114,10 @@ export function takeNextSteer(lastPrompt: string | null): SteerTaken | null {
   const state = store.state;
   const prompt = compileMotionPrompt(state, store.confirmedState).trim();
   store.markStateSent();
-  if (!prompt || prompt === lastPrompt) return null;
+  if (!prompt) return null;
+  // De-duplicate identical text, but never a prompt that carries an event:
+  // an event still in state is unconfirmed (or was just pressed again), and
+  // dropping it would leave it unsent and never retired.
+  if (prompt === lastPrompt && !state.event) return null;
   return { prompt, state };
 }

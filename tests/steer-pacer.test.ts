@@ -97,9 +97,9 @@ describe("steer pacing", () => {
 
   it("includes a key pressed during the debounce in the same prompt", () => {
     applyFlightControl("bank-left");
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(DEBOUNCE_MS - 20);
     applyFlightControl("climb");
-    vi.advanceTimersByTime(60);
+    vi.advanceTimersByTime(20);
 
     expect(wired.sent).toHaveLength(1);
     expect(store().lastSentState.flight).toMatchObject({
@@ -143,7 +143,10 @@ describe("steer pacing", () => {
     vi.advanceTimersByTime(5000);
 
     expect(wired.sent.length).toBeGreaterThan(1);
-    expect(wired.sent.length).toBeLessThanOrEqual(7);
+    // 10 s of mashing plus 5 s of quiet: at most one prompt per gap.
+    expect(wired.sent.length).toBeLessThanOrEqual(
+      Math.ceil(15_000 / MIN_SEND_GAP_MS),
+    );
     for (let index = 1; index < wired.sent.length; index += 1) {
       expect(
         wired.sent[index].at - wired.sent[index - 1].at,

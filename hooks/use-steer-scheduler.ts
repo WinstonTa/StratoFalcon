@@ -33,7 +33,7 @@ interface SentSteer {
  * latest state (the whole camera motion, plus any weather, light or event not
  * yet confirmed) and sent with `set_prompt`; `lastSentState` then becomes
  * `state`. There is no queue and no waiting for a chunk boundary. Pacing
- * (150 ms debounce, then at most one prompt per 1.9 s) and the confirmed
+ * (a short debounce, then a minimum gap between prompts) and the confirmed
  * baseline rule live in hooks/steer-pacer.ts.
  *
  * `chunk_complete` is used to confirm prompts: a confirmed prompt turns from

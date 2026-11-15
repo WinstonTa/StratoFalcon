@@ -162,7 +162,7 @@ export function describeTour(tour: TourState): Readout {
 
 /**
  * Whether the model has been told about the current state. Prompts are paced
- * (one per 1.9 s) so each change has time to land; while a change is waiting
+ * (a minimum gap apart) so each change has time to land; while one is waiting
  * its turn the countdown makes the wait read as deliberate.
  */
 function SteerStatus() {
