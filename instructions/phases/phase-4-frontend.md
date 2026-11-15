@@ -37,3 +37,12 @@ All times PST. Nothing in this file was tested against a live Reactor session. "
 - Mocked or stubbed: none
 - Needs from others: qa-reviewer to re-run the L-2 and L-3 checks.
 - Next: Winston's re-fly findings.
+
+### 4:01 PM — Second steering pass: turn sense, faster pacing, QA S-1 and C-1
+- Commits: 9346850 feat/steering-pacing: shorten the debounce to 80 ms and the send gap to 1.2 s, always send a newly pressed event (QA S-1); e26779c feat/demo-code: reuse the entered code so concurrent 401s prompt once (QA C-1); c0d823d feat/turn-sense: add a persisted Normal/Flipped turn-sense switch that recompiles and resends the motion
+- State: pushed. NOT tested live.
+- Verified: `pnpm typecheck` clean before each push. `pnpm exec vitest run tests/steer-pacer.test.ts tests/demo-code.test.ts`: 17 of 17 passed, including the two cases that failed before (S-1 "fires the same event again" and C-1 concurrent 401s). Dry run on Paris: D gave a prompt ending "the scene sliding left across the frame"; clicking Flipped resent it as "the scene sliding right" while the HUD kept "Turning right"; Normal resent the original; `localStorage` held 1 then 0; focus stayed on the deck.
+- Not verified: which turn sense is right for Orbis (that is the calibration Winston does), and whether 1.2 s pacing looks better or brings the morphing back.
+- Mocked or stubbed: none
+- Needs from others: qa-reviewer, two expectations in `tests/steer-pacer.test.ts` were edited by frontend-dev at the architect's request (the key-during-debounce offsets and the mash-test ceiling now use the exported constants). The S-1 test was not edited.
+- Next: Winston's calibration result; if Flipped is right, make it the default.
