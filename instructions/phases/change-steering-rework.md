@@ -51,3 +51,15 @@ Winston has a live Vercel deployment and will test there. The Vercel account con
 ## Unverified
 
 Everything above is a design change. None of the new wording or pacing has been judged on a live stream. Winston's re-fly is the test.
+
+## Result of the rework — 4:05 PM
+
+- typecheck: pass
+- build: pass
+- Unit tests: 424/424 (architect, 4:02 PM, tree at `909e449`)
+- Live check by Winston on the Vercel site, second re-fly (after `c22c12b`, before `77ff5d8`): directions inverted (asked for right, view turned left), turns and climbs barely showed, still too slow.
+- Third round: turn wording v3 (`77ff5d8`, a turn names where the scenery slides), sharper climb and dive wording, send gap 1.9 s to 1.2 s and debounce 150 ms to 80 ms (`9346850`), Turn sense switch (`c0d823d`).
+- Live check by Winston, third re-fly: **pressing D turns the view right** with Turn sense on Normal. He has not yet said whether turns and climbs are now strong enough or whether the response time is acceptable.
+- Decision: Normal stays the default. Move on to the untested paths: voice, landing, tour, take-off, upload.
+
+Deviation: the architect edited `lib/sim/prompt-compiler.ts` (backend-dev's path) and two expectations in `tests/motion-prompt.test.ts` (qa-reviewer's path) directly for the third round, to save a round trip. Both agents were idle at the time.
