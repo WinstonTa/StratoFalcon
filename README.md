@@ -48,7 +48,7 @@ pnpm install
 pnpm dev
 ```
 
-Open <http://localhost:3000> in **Chrome** (voice commands use Chrome's speech recognition).
+Open <http://localhost:3000> in **Chrome** (voice commands use Chrome's speech recognition). The landing page is at `/`; **Try out the demo!** takes you to the simulator at `/demo`.
 
 | Variable | Purpose |
 | --- | --- |
@@ -63,7 +63,7 @@ A live session is billed per second by Reactor while it is connected. End the fl
 
 ### Try it without spending credits
 
-Open <http://localhost:3000/?dry=1>. The flight deck, controls, HUD, scheduler and mission log all run, but nothing connects to Reactor: prompts are logged instead of sent.
+Open <http://localhost:3000/demo?dry=1>. The flight deck, controls, HUD, scheduler and mission log all run, but nothing connects to Reactor: prompts are logged instead of sent.
 
 ## Controls
 
@@ -87,6 +87,7 @@ Controls are latched: press once to start, press the same key again to return to
 | `app/api/sim/` | `command`, `guide`, `kickoff` and `seed` routes (Gemini) |
 | `app/api/token/` | Reactor session token exchange |
 | `components/`, `hooks/` | Gallery, flight deck, HUD, mission log, scheduler, session handling |
+| `components/landing-page.tsx`, `app/landing.css` | Landing page at `/` with GSAP scroll animations; the simulator lives at `/demo` |
 | `scripts/generate-seeds.mjs` | Regenerates preset seed images |
 | `tests/` | Vitest suites (`pnpm test`) |
 | `app/starter/` | The original Orbis starter UI, kept at `/starter` for debugging |

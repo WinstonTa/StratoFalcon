@@ -343,7 +343,7 @@ DEMO_ACCESS_CODE=           # optional; required on the Vercel deployment
 
 Run it from `https://stratofalcon.vercel.app/` in Chrome, or `http://localhost:3000` as the fallback. Steps 1–4 are confirmed live; steps 5–7 have only been run in dry-run mode and must be rehearsed first.
 
-Before going on stage: open the site, enter the access code if asked, check **Turn sense** reads Normal, click **Enable sound**, and leave the gallery showing.
+Before going on stage: open the site, click **Try out the demo!** on the landing page (the simulator is at `/demo`), enter the access code if asked, check **Turn sense** reads Normal, click **Enable sound**, and leave the gallery showing.
 
 1. **Pick a place (10 s).** "This is a live world model, not a rendered clip. Pick anywhere." Click **Venice Beach**. Talk over the launch steps; video arrives in about ten seconds.
 2. **Fly it (25 s).** Press **D**, wait for the turn, press **D** again. Press **W** to climb. Say: "The HUD answers on the same frame; the world follows a couple of seconds later, because every key becomes structured state, compiled into one camera prompt."
@@ -357,7 +357,7 @@ Before going on stage: open the site, enter the access code if asked, check **Tu
 
 - Stream does not start: End flight, pick the same place again. A second start is usually quick.
 - A turn goes the wrong way: click **Flipped** under the command box.
-- The site misbehaves: switch to `localhost:3000`, or to `/?dry=1` to show the controls, HUD and prompt log without a stream.
+- The site misbehaves: switch to `localhost:3000`, or to `/demo?dry=1` to show the controls, HUD and prompt log without a stream.
 - Last resort: the screen recording from rehearsal.
 
 Keep any single flight under seven minutes; Orbis Dynamic ends a run there and the automatic restart has never been exercised.
