@@ -481,13 +481,13 @@ export function compileKickoff(placeName: string, state: SimState): string {
 // The phrase tables below are the only place the wording lives.
 // ---------------------------------------------------------------------------
 
-const MOTION_FLIGHT_CAMERA = "The aerial POV camera continues its";
+const MOTION_FLIGHT_CAMERA = "The aerial POV camera";
 
-/** Pace of the forward push. */
+/** Pace of the forward flight. */
 const MOTION_SPEED: Record<FlightState["speed"], string> = {
-  slow: "slow push forward",
-  cruise: "steady push forward",
-  fast: "fast push forward",
+  slow: "flying slowly",
+  cruise: "flying steadily",
+  fast: "flying fast",
 };
 
 /** Height, only where it reads as part of the camera move. `mid` adds nothing. */
@@ -497,39 +497,54 @@ const MOTION_ALTITUDE: Record<FlightState["altitude"], string> = {
   high: "high above the ground",
 };
 
-/** A turn is a slow pan with a level horizon. `level` is handled with pitch below. */
-const MOTION_BANK: Record<FlightState["bank"], string> = {
-  level: "heading straight",
-  left: "panning slowly left with the horizon level",
-  right: "panning slowly right with the horizon level",
-};
+/**
+ * Turn wording, version 3. On the live stream "panning right" turned the view
+ * LEFT: the model moves the scenery in whichever direction the prompt names.
+ * So a turn is described by where the scenery goes, which is the opposite
+ * side from the turn: turning right slides the scene to the left. The
+ * `invertTurn` option swaps the two if a model reads it the other way.
+ */
+type Side = "left" | "right";
 
-/** `level` adds nothing on its own. */
-const MOTION_PITCH: Record<FlightState["pitch"], string> = {
-  level: "",
-  climb: "rising steadily as the ground drops away below",
-  descend: "descending steadily as the ground comes closer",
+function sceneSlide(turn: Side, invertTurn: boolean): Side {
+  const opposite: Side = turn === "right" ? "left" : "right";
+  return invertTurn ? turn : opposite;
+}
+
+const flightTurn = (slide: Side) =>
+  `swings into a hard turn, the scene sliding ${slide} across the frame`;
+
+/** Finite form leads the maneuver; the participle follows a turn. `level` adds nothing. */
+const MOTION_PITCH: Record<
+  FlightState["pitch"],
+  { finite: string; participle: string }
+> = {
+  level: { finite: "", participle: "" },
+  climb: {
+    finite: "climbs sharply as the ground drops away",
+    participle: "climbing sharply as the ground drops away",
+  },
+  descend: {
+    finite: "dives as the ground rushes up closer",
+    participle: "diving as the ground rushes up closer",
+  },
 };
 
 /** Used when both bank and pitch are neutral. */
-const MOTION_FLIGHT_NEUTRAL = "level and straight";
+const MOTION_FLIGHT_NEUTRAL = "holds a straight and level course";
 
 const MOTION_MOVE: Record<TourState["move"], string> = {
   walk: "The eye-level POV camera walks steadily forward",
   stand: "The eye-level POV camera stands still",
 };
 
-/** `none` adds nothing on its own. */
-const MOTION_TURN: Record<TourState["turn"], string> = {
-  none: "",
-  left: "panning slowly left",
-  right: "panning slowly right",
-};
+const tourTurn = (slide: Side) =>
+  `turning as the whole scene slides ${slide} across the frame`;
 
 /** `ahead` adds nothing on its own. */
 const MOTION_GAZE: Record<TourState["gaze"], string> = {
   ahead: "",
-  up: "tilting slowly upward",
+  up: "tilting upward",
 };
 
 /** Used when both turn and gaze are neutral. */
@@ -569,24 +584,40 @@ const TIME_TO: Record<Environment["timeOfDay"], string> = {
   night: "night, with a dark sky and glowing lights",
 };
 
-function motionSentence(state: SimState): string {
+function motionSentence(state: SimState, invertTurn: boolean): string {
   if (state.mode === "flight") {
     const { altitude, speed, bank, pitch } = state.flight;
-    const push = [MOTION_FLIGHT_CAMERA, MOTION_SPEED[speed], MOTION_ALTITUDE[altitude]]
+    const flying = [MOTION_SPEED[speed], MOTION_ALTITUDE[altitude]]
       .filter(Boolean)
       .join(" ");
-    const attitude =
-      bank === "level" && pitch === "level"
-        ? [MOTION_FLIGHT_NEUTRAL]
-        : [MOTION_BANK[bank], MOTION_PITCH[pitch]].filter(Boolean);
-    return `${[push, ...attitude].join(", ")}.`;
+    const maneuvers: string[] = [];
+    if (bank !== "level") {
+      maneuvers.push(flightTurn(sceneSlide(bank, invertTurn)));
+      if (pitch !== "level") maneuvers.push(MOTION_PITCH[pitch].participle);
+    } else if (pitch !== "level") {
+      maneuvers.push(MOTION_PITCH[pitch].finite);
+    } else {
+      maneuvers.push(MOTION_FLIGHT_NEUTRAL);
+    }
+    return `${MOTION_FLIGHT_CAMERA}, ${flying}, ${maneuvers.join(", ")}.`;
   }
   const { move, turn, gaze } = state.tour;
   const attitude =
     turn === "none" && gaze === "ahead"
       ? [MOTION_TOUR_NEUTRAL]
-      : [MOTION_TURN[turn], MOTION_GAZE[gaze]].filter(Boolean);
+      : [
+          turn === "none" ? "" : tourTurn(sceneSlide(turn, invertTurn)),
+          MOTION_GAZE[gaze],
+        ].filter(Boolean);
   return `${[MOTION_MOVE[move], ...attitude].join(", ")}.`;
+}
+
+export interface MotionPromptOptions {
+  /**
+   * Swap the left/right wording of turns. State and HUD are unaffected. Use
+   * when the model on the other end turns the opposite way to the key pressed.
+   */
+  invertTurn?: boolean;
 }
 
 /**
@@ -601,10 +632,15 @@ function motionSentence(state: SimState): string {
  *  3. The event sentence, only when `next.event` is non-null and differs
  *     from `prev.event` (or `prev` is omitted).
  *
- * Deterministic: the same (next, prev) always gives the identical string.
+ * Deterministic: the same (next, prev, options) always gives the identical
+ * string.
  */
-export function compileMotionPrompt(next: SimState, prev?: SimState): string {
-  const parts = [motionSentence(next)];
+export function compileMotionPrompt(
+  next: SimState,
+  prev?: SimState,
+  options: MotionPromptOptions = {},
+): string {
+  const parts = [motionSentence(next, options.invertTurn === true)];
 
   if (prev) {
     if (prev.environment.weather !== next.environment.weather) {
