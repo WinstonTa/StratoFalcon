@@ -1,5 +1,5 @@
-import { StratoFalconApp } from "@/components/stratofalcon-app";
+import { LandingPage } from "@/components/landing-page";
 
 export default function Home() {
-  return <StratoFalconApp />;
+  return <LandingPage />;
 }
